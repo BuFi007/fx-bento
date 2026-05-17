@@ -15,6 +15,7 @@ export const FxBentoEnvSchema = z.object({
   CONTRACT_RPC_URL: z.string().url().optional(),
   ENVIRONMENT: z.enum(["development", "preview", "staging", "production", "test"]).default("development"),
   FX_BENTO_DB_PATH: z.string().min(1).optional(),
+  FX_BENTO_CHAIN_ID: z.coerce.number().int().positive().optional(),
   FX_BENTO_DATABASE_URL: z.string().url().optional(),
   LIVEBLOCKS_SECRET_KEY: z.string().min(1).optional(),
   MARKET_DATA_RPC_URL: z.string().url().optional(),
