@@ -4,10 +4,15 @@ These tasks are deferred from `/autoplan` and should be handled before public pa
 
 ## P0 Contract Safety
 
-- Repair escrow active roster, leave/rejoin, refund, and room-full accounting.
-- Make `FXBentoSettlementManager` the authoritative settlement path for escrow roots.
-- Replace arbitrary room status writes with a room lifecycle transition table.
-- Require paid active membership for commit/reveal and prize eligibility.
+Complete in the MVP scaffold:
+
+- Escrow active roster, leave/rejoin, refund, and room-full accounting.
+- `FXBentoSettlementManager` is the authoritative settlement path for escrow roots.
+- Room status changes use the factory lifecycle transition table.
+- Paid active membership is required for commit/reveal and prize eligibility.
+- Lifecycle accounting invariants cover joins, leaves, lock, rescue cancel, refunds, settlement, prize claims, and protocol fee claims.
+
+No open P0 contract-safety tasks remain in this file.
 
 ## P0 Validation
 

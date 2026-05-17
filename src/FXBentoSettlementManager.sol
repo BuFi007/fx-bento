@@ -72,6 +72,7 @@ contract FXBentoSettlementManager is AccessManaged {
         require(address(roundManager) != address(0), "ROUND_MANAGER_NOT_SET");
         require(roundManager.allRoundsEnded(roomId), "ROUNDS_NOT_ENDED");
         require(pendingResults[roomId].submittedAt == 0, "ALREADY_SUBMITTED");
+        if (room.status == 1) escrow.markSettling(roomId);
         _validatePayout(roomId, room, payout, metadataURI);
         bytes32 payoutSchemaHash = escrow.hashPayoutRoot(payout);
         pendingResults[roomId] = PendingResults({

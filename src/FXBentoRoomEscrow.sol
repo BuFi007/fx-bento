@@ -11,7 +11,6 @@ import {ProtocolFeeVault} from "./ProtocolFeeVault.sol";
 contract FXBentoRoomEscrow is AccessManaged, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
-    bytes32 public constant SETTLER_ROLE = keccak256("SETTLER_ROLE");
     uint16 public constant BPS = 10_000;
 
     FXBentoRoomFactory public immutable factory;
@@ -131,7 +130,8 @@ contract FXBentoRoomEscrow is AccessManaged, ReentrancyGuard {
         emit RoomLocked(roomId, escrowed[roomId]);
     }
 
-    function markSettling(uint256 roomId) external onlyRole(SETTLER_ROLE) {
+    function markSettling(uint256 roomId) external {
+        require(msg.sender == settlementManager, "NOT_SETTLEMENT_MANAGER");
         RoomView memory room = factory.getRoom(roomId);
         require(room.status == 1, "ROOM_NOT_LOCKED");
         factory.transitionRoomStatus(roomId, 1, 2);
@@ -167,7 +167,7 @@ contract FXBentoRoomEscrow is AccessManaged, ReentrancyGuard {
     function claimPrize(uint256 roomId, uint256 amount, bytes32[] calldata proof) external nonReentrant {
         RoomView memory room = factory.getRoom(roomId);
         require(room.status == 3, "ROOM_NOT_SETTLED");
-        require(joined[roomId][msg.sender], "NOT_PLAYER");
+        require(isActivePlayer(roomId, msg.sender), "NOT_PLAYER");
         require(!prizeClaimed[roomId][msg.sender], "PRIZE_CLAIMED");
         bytes32 leaf = keccak256(abi.encode(roomId, msg.sender, amount));
         require(MerkleProof.verify(proof, resultsRoot[roomId], leaf), "BAD_PROOF");
@@ -192,6 +192,18 @@ contract FXBentoRoomEscrow is AccessManaged, ReentrancyGuard {
 
     function players(uint256 roomId) external view returns (address[] memory) {
         return roomPlayers[roomId];
+    }
+
+    function isActivePlayer(uint256 roomId, address player) public view returns (bool) {
+        if (!joined[roomId][player] || refunded[roomId][player]) return false;
+        uint8 status = factory.getRoom(roomId).status;
+        return status == 1 || status == 2 || status == 3;
+    }
+
+    function canPlay(uint256 roomId, address player) public view returns (bool) {
+        if (!joined[roomId][player] || refunded[roomId][player]) return false;
+        uint8 status = factory.getRoom(roomId).status;
+        return status == 1 || status == 2;
     }
 
     function hashPayoutRoot(PayoutRoot memory payout) public pure returns (bytes32) {

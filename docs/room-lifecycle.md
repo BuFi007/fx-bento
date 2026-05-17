@@ -16,7 +16,7 @@ Allowed transitions:
 | --- | --- | --- | --- |
 | Lobby | Locked | `FXBentoRoomEscrow` | Active players >= min players and `block.timestamp >= startTime`. |
 | Lobby | Cancelled | `FXBentoRoomEscrow` | Active players < min players and `block.timestamp >= startTime`. |
-| Locked | Settling | `FXBentoRoomEscrow` or authorized coordinator path | Room play has ended. |
+| Locked | Settling | `FXBentoRoomEscrow`, called by `FXBentoSettlementManager` | All rounds ended and typed results were submitted. |
 | Locked/Settling | Settled | `FXBentoRoomEscrow`, called by `FXBentoSettlementManager` | Valid final results root and payout cap. |
 | Locked/Settling | Cancelled | `FXBentoRoomEscrow`, called by `FXBentoSettlementManager` | Settlement rescue deadline has passed and no results were finalized. |
 

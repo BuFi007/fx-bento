@@ -67,7 +67,7 @@ contract FXBentoCommitmentManager is AccessManaged {
         external
     {
         Round memory round = roundManager.getRound(roomId, roundIndex);
-        require(escrow.joined(roomId, msg.sender), "NOT_PLAYER");
+        require(escrow.canPlay(roomId, msg.sender), "NOT_PLAYER");
         require(round.status == 1, "ROUND_NOT_ACTIVE");
         require(block.timestamp >= round.lockTime, "TOO_EARLY");
         require(block.timestamp <= round.endTime + 5 minutes, "REVEAL_CLOSED");
@@ -85,7 +85,7 @@ contract FXBentoCommitmentManager is AccessManaged {
 
     function _commit(uint256 roomId, uint16 roundIndex, address player, bytes32 commitment) internal {
         Round memory round = roundManager.getRound(roomId, roundIndex);
-        require(escrow.joined(roomId, player), "NOT_PLAYER");
+        require(escrow.canPlay(roomId, player), "NOT_PLAYER");
         require(round.status == 1, "ROUND_NOT_ACTIVE");
         require(block.timestamp < round.lockTime, "COMMIT_CLOSED");
         require(commitments[roomId][roundIndex][player] == bytes32(0), "ALREADY_COMMITTED");

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {AccessManaged, Pausable} from "./libraries/Guards.sol";
+import {Pausable} from "./libraries/Guards.sol";
 import {PoolId, PoolKey, RoomConfig, RoomView, PoolIdLibrary} from "./libraries/FXBentoTypes.sol";
 import {PoolRegistry} from "./PoolRegistry.sol";
 

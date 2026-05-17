@@ -388,6 +388,44 @@ contract FXBentoProtocolTest is Test {
         _join(carol, roomId);
     }
 
+    function testLeftPlayerCannotCommit() public {
+        uint256 roomId = _createRoom(2, 3);
+        _join(alice, roomId);
+        vm.prank(alice);
+        escrow.leaveRoom(roomId);
+        _join(bob, roomId);
+        _join(carol, roomId);
+        vm.warp(factory.getRoom(roomId).startTime);
+        escrow.lockRoom(roomId);
+        _recordHookSnapshot(100);
+        rounds.startRound(
+            roomId,
+            0,
+            uint64(block.timestamp),
+            uint64(block.timestamp + 60),
+            uint64(block.timestamp + 50),
+            bytes32("grid")
+        );
+
+        vm.prank(alice);
+        vm.expectRevert("NOT_PLAYER");
+        commitments.commitSelection(roomId, 0, bytes32("commitment"));
+    }
+
+    function testCancelledRoomDisablesActiveMembership() public {
+        settlement.setSettlementRescueDelay(10);
+        uint256 roomId = _startedRoom();
+
+        assertTrue(escrow.canPlay(roomId, alice));
+        assertTrue(escrow.isActivePlayer(roomId, alice));
+
+        vm.warp(factory.getRoom(roomId).startTime + uint256(factory.getRoom(roomId).rounds) * 60 + 10);
+        settlement.rescueFailedSettlement(roomId);
+
+        assertFalse(escrow.canPlay(roomId, alice));
+        assertFalse(escrow.isActivePlayer(roomId, alice));
+    }
+
     function testNonPlayerCannotCommitOrClaim() public {
         uint256 roomId = _startedRoom();
         _recordHookSnapshot(100);
@@ -420,6 +458,12 @@ contract FXBentoProtocolTest is Test {
         uint256 roomId = _startedRoom();
         vm.expectRevert("NOT_SETTLEMENT_MANAGER");
         escrow.settleRoom(roomId, _payoutRoot(roomId, alice, 9e6), "");
+    }
+
+    function testDirectEscrowMarkSettlingBypassRejected() public {
+        uint256 roomId = _startedRoom();
+        vm.expectRevert("NOT_SETTLEMENT_MANAGER");
+        escrow.markSettling(roomId);
     }
 
     function testRoundStartRequiresFreshSnapshot() public {
@@ -524,6 +568,15 @@ contract FXBentoProtocolTest is Test {
 
         vm.expectRevert("METADATA_MISMATCH");
         settlement.submitResults(roomId, payout, "ipfs://results", "");
+    }
+
+    function testSubmitResultsTransitionsLockedRoomToSettling() public {
+        uint256 roomId = _startedRoom();
+        _settleAllRounds(roomId);
+
+        settlement.submitResults(roomId, _payoutRoot(roomId, alice, 9e6), "ipfs://results", "");
+
+        assertEq(uint8(factory.getRoom(roomId).status), 2);
     }
 
     function testChallengeBlocksFinalization() public {
