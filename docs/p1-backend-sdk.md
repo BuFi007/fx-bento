@@ -99,3 +99,29 @@ The lobby and room surfaces render from contract-aligned fields:
 - `actions` from `roomFlowActions(...)`
 
 The UI does not decide money state. It only renders room actions that should be backed by contract reads or indexed backend state.
+
+## Wallet-Backed CTAs
+
+The rendered room CTAs now use viem wallet clients and the SDK transaction builders to submit real transaction requests when deployment addresses are provided.
+
+`ArcadeLobby` accepts:
+
+- `contracts`: `roomFactory`, `roomEscrow`, `commitmentManager`, and `settlementManager` addresses.
+- `chainId`: used when building tile commitment hashes.
+- `claimAllocations`: winner allocation data keyed by frontend room id or contract room id.
+
+Implemented wallet-backed actions:
+
+- Join room: `prepareJoinRoomTx(...)` against `FXBentoRoomEscrow`.
+- Claim refund: `prepareRefundTx(...)` against `FXBentoRoomEscrow`.
+- Commit tiles: `prepareCommitSelectionTx(...)` against `FXBentoCommitmentManager`.
+- Claim prize: `prepareClaimPrizeTx(...)` against `FXBentoRoomEscrow`.
+
+The component connects through `window.ethereum`, normalizes the selected account, and sends the prepared calldata through `walletClient.sendTransaction(...)`. CTAs stay disabled when a room lacks a contract room id or a required claim allocation.
+
+Remaining wallet hardening:
+
+- Add entry-token allowance and balance preflight for paid joins.
+- Add wrong-chain detection and chain switching.
+- Persist commit nonce/client state so reveal UX can reuse it.
+- Feed claim allocations from finalized settlement results instead of prop injection.

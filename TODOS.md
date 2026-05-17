@@ -52,11 +52,12 @@ Remaining P1 production work:
 - SDK transaction builders now cover create/join/leave/cancel/refund/lock/commit/reveal/claim/settlement/challenge/rescue.
 - SDK state helpers now expose room-status CTA gating.
 - Frontend lobby and room surfaces now consume backend room state and `roomFlowActions(...)` for join/refund/settlement/challenge/claim rendering.
+- Frontend join, refund, commit, and claim CTAs now use wallet-backed viem transaction requests from SDK tx builders when contract addresses and contract room ids are available.
 
 Remaining P1 production work:
 
 - Implement full UI state matrix from the architecture reference.
-- Add wallet-backed transaction handlers to the rendered room CTAs.
+- Add entry-token allowance/balance preflight and wrong-chain handling for wallet CTAs.
 - Expand board-first mobile layout with sticky timer and commit/reveal controls.
 - Add replayable result explanation: selected tiles, price path, hit/miss, multiplier, coverage penalty, score delta, rank, prize.
-- Add SDK market, settlement, Liveblocks, and wallet state helpers.
+- Add SDK market, settlement, Liveblocks, wallet state, and claim-allocation helpers.
