@@ -33,7 +33,7 @@ The protocol never pays winners from a vault, never quotes uncapped multipliers,
 
 ## MVP Limitations
 
-- The hook uses canonical v4-core interfaces and reads pool state through `StateLibrary`, but production deployment still needs HookMiner/CREATE2 address-bit mining and a real PoolManager integration test.
+- The hook uses canonical v4-core interfaces and reads pool state through `StateLibrary`, but production deployment still needs a HookMiner/CREATE2 deployment script for address-bit mining.
 - Settlement attestation is authorized for MVP; decentralization requires multiple attestors or optimistic dispute proofs.
 - Oracle freshness checks are modeled in registry metadata but not fully enforced in settlement.
 - Frontend and backend are product skeletons, not production wallet flows.

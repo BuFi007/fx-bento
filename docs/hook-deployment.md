@@ -33,4 +33,26 @@ Before attaching the hook to a real v4 pool:
 5. Confirm `afterSwap` only records the `StateLibrary.getSlot0` snapshot and emits market events.
 6. Confirm disabled callbacks revert and no return-delta flags are enabled.
 
-The current unit tests use a mock PoolManager for deterministic snapshot tests. They do not replace the HookMiner and real PoolManager deployment gate.
+`test/FXBentoHookV4Integration.t.sol` covers the local `PoolManager` path with a permissioned hook address, real pool initialization, real liquidity modification, and a real swap. It does not replace the HookMiner/CREATE2 deployment script needed for testnet and production deployment.
+
+## Salt Mining
+
+Use the mining script with the final constructor arguments and CREATE2 deployer address. Constructor arguments affect the init code hash, so changing `OWNER`, `POOL_MANAGER`, `POOL_REGISTRY`, or `PROTOCOL_FEE_VAULT` changes the predicted address.
+
+```bash
+CREATE2_DEPLOYER=0x... \
+OWNER=0x... \
+POOL_MANAGER=0x... \
+POOL_REGISTRY=0x... \
+PROTOCOL_FEE_VAULT=0x... \
+HOOK_MINE_ATTEMPTS=5000000 \
+forge script script/MineFXBentoHookSalt.s.sol --sig "run()"
+```
+
+The script prints:
+
+- CREATE2 deployer
+- predicted `FXBentoHook` address
+- salt
+
+The printed address must satisfy `hookAddressHasPermissions(address) == true` before deployment.

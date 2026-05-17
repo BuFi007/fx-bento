@@ -4,8 +4,7 @@ These tasks are deferred from `/autoplan` and should be handled before public pa
 
 ## P0 Contract Safety
 
-- Add HookMiner/CREATE2 deployment script and integration test for the canonical `FXBentoHook.sol` permission bits.
-- Add real PoolManager integration tests against a local v4 pool.
+- Add broadcast-safe CREATE2 deployment script for the canonical `FXBentoHook.sol` permission bits.
 - Repair escrow active roster, leave/rejoin, refund, and room-full accounting.
 - Make `FXBentoSettlementManager` the authoritative settlement path for escrow roots.
 - Replace arbitrary room status writes with a room lifecycle transition table.
