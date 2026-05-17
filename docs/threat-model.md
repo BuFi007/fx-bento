@@ -28,12 +28,12 @@ The protocol never pays winners from a vault, never quotes uncapped multipliers,
 - Double claims: `prizeClaimed` and `protocolFeeClaimed` gates.
 - Late selection changes: commit must happen before `lockTime`; reveal must match commitment after lock.
 - Wall/spam patterns: scoring and commitment validation reject too many tiles, too many same-row tiles, horizontal chains, duplicate tiles, and full rows/columns.
-- Hook overreach: hook does not custody player funds or settle winners, and callback-style snapshot writes are restricted to the configured PoolManager address.
+- Hook overreach: hook does not custody player funds or settle winners, implements canonical v4-core `IHooks`, uses no return-delta permissions, and callback-style snapshot writes are restricted to the configured PoolManager address.
 - Emergency pause abuse: pause is scoped to new hook swap context and factory room creation; refunds and claims remain available through escrow status.
 
 ## MVP Limitations
 
-- The hook is a local v4-compatible scaffold with PoolManager caller checks, not yet wired to canonical Uniswap v4 periphery imports, HookMiner deployment, or upstream `BaseHook`.
+- The hook uses canonical v4-core interfaces and reads pool state through `StateLibrary`, but production deployment still needs HookMiner/CREATE2 address-bit mining and a real PoolManager integration test.
 - Settlement attestation is authorized for MVP; decentralization requires multiple attestors or optimistic dispute proofs.
 - Oracle freshness checks are modeled in registry metadata but not fully enforced in settlement.
 - Frontend and backend are product skeletons, not production wallet flows.

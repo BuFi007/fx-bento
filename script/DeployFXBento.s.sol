@@ -10,6 +10,7 @@ import {FXBentoRoomEscrow} from "../src/FXBentoRoomEscrow.sol";
 import {FXBentoRoundManager} from "../src/FXBentoRoundManager.sol";
 import {FXBentoCommitmentManager} from "../src/FXBentoCommitmentManager.sol";
 import {FXBentoSettlementManager} from "../src/FXBentoSettlementManager.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 
 contract DeployFXBento is Script {
     function run() external {
@@ -19,7 +20,7 @@ contract DeployFXBento is Script {
         vm.startBroadcast();
         PoolRegistry registry = new PoolRegistry(owner);
         ProtocolFeeVault vault = new ProtocolFeeVault(owner, treasury);
-        new FXBentoHook(owner, poolManager, registry, vault);
+        new FXBentoHook(owner, IPoolManager(poolManager), registry, vault);
         FXBentoRoomFactory factory = new FXBentoRoomFactory(owner, registry);
         FXBentoRoomEscrow escrow = new FXBentoRoomEscrow(owner, factory, vault);
         factory.setEscrow(address(escrow));

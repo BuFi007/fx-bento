@@ -4,8 +4,8 @@ These tasks are deferred from `/autoplan` and should be handled before public pa
 
 ## P0 Contract Safety
 
-- Refactor `FXBentoHook.sol` into a canonical Uniswap v4 `BaseHook`.
-- Enforce `PoolManager`-only hook callbacks and permission-bit deployment tests.
+- Add HookMiner/CREATE2 deployment script and integration test for the canonical `FXBentoHook.sol` permission bits.
+- Add real PoolManager integration tests against a local v4 pool.
 - Repair escrow active roster, leave/rejoin, refund, and room-full accounting.
 - Make `FXBentoSettlementManager` the authoritative settlement path for escrow roots.
 - Replace arbitrary room status writes with a room lifecycle transition table.

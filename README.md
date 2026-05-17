@@ -6,7 +6,7 @@ FX² Arcade Protocol is a decentralized multiplayer arcade layer for FX markets.
 
 ## Architecture
 
-- `FXBentoHook.sol`: volatility oracle and market snapshot hook. It validates allowed pools, records pool snapshots, emits market events, and never custodies player escrow.
+- `FXBentoHook.sol`: canonical v4-core `IHooks` market snapshot hook. It validates allowed pools, records PoolManager snapshots, emits market events, and never custodies player escrow.
 - `FXBentoRoomFactory.sol`: creates immutable FX Bento room configs.
 - `FXBentoRoomEscrow.sol`: holds entry fees, refunds cancelled rooms, settles Merkle prize roots, enforces `payouts + rake <= escrow`.
 - `FXBentoRoundManager.sol`: stores round timing, anchors, and settlement prices.
@@ -57,6 +57,7 @@ Current hardening references:
 
 - `AGENTS.md`: agent and architecture guidance.
 - `docs/architecture-reference.md`: full validation-first architecture plan.
+- `docs/hook-deployment.md`: v4 permission-bit and deployment notes.
 - `docs/threat-model.md`: current trust boundaries and limitations.
 - `TODOS.md`: P0/P1 implementation queue.
 - `/Users/criptopoeta/.gstack/projects/BuFi007-fx-bento/main-autoplan-test-plan-20260516-205300.md`: expanded validation and invariant test plan.

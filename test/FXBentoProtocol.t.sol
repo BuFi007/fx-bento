@@ -13,6 +13,24 @@ import {FXBentoSettlementManager} from "../src/FXBentoSettlementManager.sol";
 import {FXBentoScoring} from "../src/FXBentoScoring.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
 import {PoolKey, RoomConfig, TileSelection, PoolIdLibrary} from "../src/libraries/FXBentoTypes.sol";
+import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
+import {Currency} from "v4-core/types/Currency.sol";
+import {IHooks} from "v4-core/interfaces/IHooks.sol";
+import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
+import {Hooks} from "v4-core/libraries/Hooks.sol";
+import {PoolKey as V4PoolKey} from "v4-core/types/PoolKey.sol";
+
+contract MockV4PoolManager {
+    bytes32 public slot0;
+
+    function setSlot0(uint160 sqrtPriceX96, int24 tick) external {
+        slot0 = bytes32(uint256(sqrtPriceX96) | (uint256(uint24(tick)) << 160));
+    }
+
+    function extsload(bytes32) external view returns (bytes32) {
+        return slot0;
+    }
+}
 
 contract ScoringHarness {
     function validate(TileSelection memory selection) external pure returns (bool) {
@@ -32,9 +50,9 @@ contract FXBentoProtocolTest is Test {
     address alice = address(0xA11CE);
     address bob = address(0xB0B);
     address carol = address(0xCA012);
-    address poolManager = address(0x9001);
 
     MockUSDC usdc;
+    MockV4PoolManager poolManager;
     PoolRegistry registry;
     ProtocolFeeVault vault;
     FXBentoHook hook;
@@ -45,13 +63,22 @@ contract FXBentoProtocolTest is Test {
     FXBentoSettlementManager settlement;
     ScoringHarness scoring;
     PoolKey key;
+    V4PoolKey v4Key;
 
     function setUp() public {
         usdc = new MockUSDC();
+        poolManager = new MockV4PoolManager();
         registry = new PoolRegistry(owner);
         vault = new ProtocolFeeVault(owner, treasury);
-        hook = new FXBentoHook(owner, poolManager, registry, vault);
+        hook = new FXBentoHook(owner, IPoolManager(address(poolManager)), registry, vault);
         key = PoolKey(address(usdc), address(0xE00C), 500, 10, address(hook));
+        v4Key = V4PoolKey({
+            currency0: Currency.wrap(address(usdc)),
+            currency1: Currency.wrap(address(0xE00C)),
+            fee: 500,
+            tickSpacing: 10,
+            hooks: IHooks(address(hook))
+        });
         registry.setPool(key, address(0x0A11CE), true, 300);
         factory = new FXBentoRoomFactory(owner, registry);
         escrow = new FXBentoRoomEscrow(owner, factory, vault);
@@ -273,18 +300,28 @@ contract FXBentoProtocolTest is Test {
     }
 
     function testHookSnapshotsAndVolatility() public {
-        vm.startPrank(poolManager);
-        hook.afterInitialize(key, 1 << 96, 100);
-        hook.beforeSwap(key, address(this));
-        hook.afterSwap(key, uint160(1 << 96), 130);
-        hook.afterSwap(key, uint160(1 << 96), 160);
+        IPoolManager.SwapParams memory params;
+        vm.startPrank(address(poolManager));
+        hook.afterInitialize(address(this), v4Key, 1 << 96, 100);
+        hook.beforeSwap(address(this), v4Key, params, "");
+        poolManager.setSlot0(uint160(1 << 96), 130);
+        hook.afterSwap(address(this), v4Key, params, BalanceDelta.wrap(0), "");
+        poolManager.setSlot0(uint160(1 << 96), 160);
+        hook.afterSwap(address(this), v4Key, params, BalanceDelta.wrap(0), "");
         vm.stopPrank();
         assertGt(hook.realizedVolatility(key.toId(), 2), 0);
     }
 
+    function testHookPermissionBitmapMatchesEnabledCallbacks() public view {
+        uint160 expected = Hooks.AFTER_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG;
+        assertEq(hook.hookPermissionBitmap(), expected);
+        assertTrue(hook.hookAddressHasPermissions(address(uint160(expected))));
+    }
+
     function testHookRejectsSpoofedSnapshots() public {
+        IPoolManager.SwapParams memory params;
         vm.expectRevert("NOT_POOL_MANAGER");
-        hook.afterSwap(key, uint160(1 << 96), 130);
+        hook.afterSwap(address(this), v4Key, params, BalanceDelta.wrap(0), "");
     }
 
     function testLeaveRejoinCanRefundAndDoesNotConsumeSeat() public {
