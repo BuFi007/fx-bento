@@ -1,27 +1,12 @@
 {
-  "name": "fx-bento-arcade",
+  "name": "@bufi/fx-bento-protocol",
   "private": true,
-  "type": "module",
+  "description": "Solidity protocol contracts for FX² Arcade Protocol and FX Bento.",
   "scripts": {
+    "fmt": "forge fmt",
+    "fmt:check": "forge fmt --check",
+    "build": "forge build",
     "test": "forge test",
-    "build:contracts": "forge build",
-    "backend:dev": "bun run backend/src/server.ts",
-    "test:ts": "bun test sdk/src/index.test.ts",
-    "typecheck": "tsc --noEmit",
-    "verify": "forge fmt --check && forge build && forge test && bun run test:ts && bun run typecheck"
-  },
-  "dependencies": {
-    "@hono/node-server": "^1.14.4",
-    "@liveblocks/node": "^2.24.3",
-    "hono": "^4.7.11",
-    "viem": "^2.31.0"
-  },
-  "devDependencies": {
-    "@types/bun": "^1.3.3",
-    "@types/react": "^19.1.8",
-    "typescript": "^5.8.3"
-  },
-  "peerDependencies": {
-    "react": ">=18"
+    "verify": "forge fmt --check && forge build && forge test"
   }
 }
