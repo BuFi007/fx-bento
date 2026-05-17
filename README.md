@@ -1,5 +1,7 @@
 # FX² Arcade Protocol
 
+> **Status:** validation scaffold. Do not deploy paid public rooms from this branch until the P0 contract tasks in `TODOS.md` are complete and the invariant suite passes.
+
 FX² Arcade Protocol is a decentralized multiplayer arcade layer for FX markets. FX Bento is the first game: players enter USDC rooms, compete on future price-tile predictions using equal chip budgets, and win from capped player-funded prize pools. Uniswap v4 hooks anchor the game to real market pools, while escrow contracts guarantee that no player or admin can withdraw room funds outside the rules. The protocol earns transparent rake and never takes uncapped directional risk.
 
 ## Architecture
@@ -38,8 +40,11 @@ Backend endpoints:
 ## Commands
 
 ```bash
+forge fmt --check
 forge build
 forge test
+bun run typecheck
+bun run verify
 bun install
 bun run backend:dev
 ```
@@ -47,3 +52,11 @@ bun run backend:dev
 ## Status
 
 This is an MVP scaffold with passing Foundry coverage for room creation, joins, max-player limits, min-player lock checks, cancellation refunds, commit-reveal, anti-wall rejection, scoring, settlement, rake, prize claims, double-settlement prevention, and payout invariants.
+
+Current hardening references:
+
+- `AGENTS.md`: agent and architecture guidance.
+- `docs/architecture-reference.md`: full validation-first architecture plan.
+- `docs/threat-model.md`: current trust boundaries and limitations.
+- `TODOS.md`: P0/P1 implementation queue.
+- `/Users/criptopoeta/.gstack/projects/BuFi007-fx-bento/main-autoplan-test-plan-20260516-205300.md`: expanded validation and invariant test plan.

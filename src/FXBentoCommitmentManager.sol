@@ -5,6 +5,7 @@ import {AccessManaged} from "./libraries/Guards.sol";
 import {Round, TileSelection} from "./libraries/FXBentoTypes.sol";
 import {FXBentoScoring} from "./FXBentoScoring.sol";
 import {FXBentoRoundManager} from "./FXBentoRoundManager.sol";
+import {FXBentoRoomEscrow} from "./FXBentoRoomEscrow.sol";
 
 contract FXBentoCommitmentManager is AccessManaged {
     using FXBentoScoring for TileSelection;
@@ -15,6 +16,7 @@ contract FXBentoCommitmentManager is AccessManaged {
         keccak256("TileCommitment(uint256 roomId,uint16 roundIndex,address player,bytes32 commitment)");
 
     FXBentoRoundManager public immutable roundManager;
+    FXBentoRoomEscrow public immutable escrow;
     mapping(uint256 => mapping(uint16 => mapping(address => bytes32))) public commitments;
     mapping(uint256 => mapping(uint16 => mapping(address => bytes32))) public revealedSelectionHash;
 
@@ -25,8 +27,9 @@ contract FXBentoCommitmentManager is AccessManaged {
         uint256 indexed roomId, uint16 indexed roundIndex, address indexed player, bytes32 selectedTilesHash
     );
 
-    constructor(address owner_, FXBentoRoundManager roundManager_) AccessManaged(owner_) {
+    constructor(address owner_, FXBentoRoundManager roundManager_, FXBentoRoomEscrow escrow_) AccessManaged(owner_) {
         roundManager = roundManager_;
+        escrow = escrow_;
         DOMAIN_SEPARATOR = keccak256(abi.encode(block.chainid, address(this)));
     }
 
@@ -64,6 +67,7 @@ contract FXBentoCommitmentManager is AccessManaged {
         external
     {
         Round memory round = roundManager.getRound(roomId, roundIndex);
+        require(escrow.joined(roomId, msg.sender), "NOT_PLAYER");
         require(round.status == 1, "ROUND_NOT_ACTIVE");
         require(block.timestamp >= round.lockTime, "TOO_EARLY");
         require(block.timestamp <= round.endTime + 5 minutes, "REVEAL_CLOSED");
@@ -81,6 +85,7 @@ contract FXBentoCommitmentManager is AccessManaged {
 
     function _commit(uint256 roomId, uint16 roundIndex, address player, bytes32 commitment) internal {
         Round memory round = roundManager.getRound(roomId, roundIndex);
+        require(escrow.joined(roomId, player), "NOT_PLAYER");
         require(round.status == 1, "ROUND_NOT_ACTIVE");
         require(block.timestamp < round.lockTime, "COMMIT_CLOSED");
         require(commitments[roomId][roundIndex][player] == bytes32(0), "ALREADY_COMMITTED");

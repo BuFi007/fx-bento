@@ -20,6 +20,10 @@ contract FXBentoHook is Pausable {
         bool afterSwap;
         bool beforeDonate;
         bool afterDonate;
+        bool beforeSwapReturnDelta;
+        bool afterSwapReturnDelta;
+        bool afterAddLiquidityReturnDelta;
+        bool afterRemoveLiquidityReturnDelta;
     }
 
     struct PoolSnapshot {
@@ -30,6 +34,7 @@ contract FXBentoHook is Pausable {
     }
 
     uint256 public constant RING_SIZE = 32;
+    address public immutable poolManager;
     PoolRegistry public immutable registry;
     ProtocolFeeVault public feeVault;
     mapping(PoolId => PoolSnapshot[RING_SIZE]) private snapshots;
@@ -42,7 +47,16 @@ contract FXBentoHook is Pausable {
     event PreSwapContext(PoolId indexed poolId, address indexed sender);
     event ArcadeFeeVaultUpdated(address indexed feeVault);
 
-    constructor(address owner_, PoolRegistry registry_, ProtocolFeeVault feeVault_) Pausable(owner_) {
+    modifier onlyPoolManager() {
+        require(msg.sender == poolManager, "NOT_POOL_MANAGER");
+        _;
+    }
+
+    constructor(address owner_, address poolManager_, PoolRegistry registry_, ProtocolFeeVault feeVault_)
+        Pausable(owner_)
+    {
+        require(poolManager_ != address(0), "ZERO_POOL_MANAGER");
+        poolManager = poolManager_;
         registry = registry_;
         feeVault = feeVault_;
     }
@@ -58,7 +72,11 @@ contract FXBentoHook is Pausable {
             beforeSwap: true,
             afterSwap: true,
             beforeDonate: false,
-            afterDonate: false
+            afterDonate: false,
+            beforeSwapReturnDelta: false,
+            afterSwapReturnDelta: false,
+            afterAddLiquidityReturnDelta: false,
+            afterRemoveLiquidityReturnDelta: false
         });
     }
 
@@ -73,7 +91,7 @@ contract FXBentoHook is Pausable {
 
     function afterInitialize(PoolKey calldata key, uint160 sqrtPriceX96, int24 tick)
         external
-        onlyOwner
+        onlyPoolManager
         returns (bytes4)
     {
         PoolId poolId = PoolIdLibrary.toId(key);
@@ -83,18 +101,29 @@ contract FXBentoHook is Pausable {
         return this.afterInitialize.selector;
     }
 
-    function beforeSwap(PoolKey calldata key) external whenNotPaused returns (bytes4) {
+    function beforeSwap(PoolKey calldata key, address sender) external onlyPoolManager whenNotPaused returns (bytes4) {
         PoolId poolId = PoolIdLibrary.toId(key);
         require(registry.isAllowed(poolId), "POOL_NOT_ALLOWED");
-        emit PreSwapContext(poolId, msg.sender);
+        emit PreSwapContext(poolId, sender);
         return this.beforeSwap.selector;
     }
 
-    function afterSwap(PoolKey calldata key, uint160 sqrtPriceX96, int24 tick) external whenNotPaused returns (bytes4) {
+    function afterSwap(PoolKey calldata key, uint160 sqrtPriceX96, int24 tick)
+        external
+        onlyPoolManager
+        whenNotPaused
+        returns (bytes4)
+    {
         PoolId poolId = PoolIdLibrary.toId(key);
         require(registry.isAllowed(poolId), "POOL_NOT_ALLOWED");
         _record(poolId, sqrtPriceX96, tick);
         return this.afterSwap.selector;
+    }
+
+    function recordSnapshotForTesting(PoolKey calldata key, uint160 sqrtPriceX96, int24 tick) external onlyOwner {
+        PoolId poolId = PoolIdLibrary.toId(key);
+        require(registry.isAllowed(poolId), "POOL_NOT_ALLOWED");
+        _record(poolId, sqrtPriceX96, tick);
     }
 
     function latestSnapshot(PoolId poolId) public view returns (PoolSnapshot memory) {

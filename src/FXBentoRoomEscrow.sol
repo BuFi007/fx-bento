@@ -16,11 +16,14 @@ contract FXBentoRoomEscrow is AccessManaged, ReentrancyGuard {
 
     FXBentoRoomFactory public immutable factory;
     ProtocolFeeVault public immutable protocolFeeVault;
+    address public settlementManager;
 
     mapping(uint256 => address[]) private roomPlayers;
+    mapping(uint256 => mapping(address => bool)) private seenPlayer;
     mapping(uint256 => mapping(address => bool)) public joined;
     mapping(uint256 => mapping(address => bool)) public refunded;
     mapping(uint256 => mapping(address => bool)) public prizeClaimed;
+    mapping(uint256 => uint16) public activePlayerCount;
     mapping(uint256 => bytes32) public resultsRoot;
     mapping(uint256 => uint256) public escrowed;
     mapping(uint256 => uint256) public protocolFee;
@@ -35,19 +38,32 @@ contract FXBentoRoomEscrow is AccessManaged, ReentrancyGuard {
     event Refunded(uint256 indexed roomId, address indexed player, uint256 amount);
     event PrizeClaimed(uint256 indexed roomId, address indexed player, uint256 amount);
     event ProtocolFeeClaimed(uint256 indexed roomId, uint256 amount);
+    event SettlementManagerUpdated(address indexed settlementManager);
 
     constructor(address owner_, FXBentoRoomFactory factory_, ProtocolFeeVault protocolFeeVault_) AccessManaged(owner_) {
         factory = factory_;
         protocolFeeVault = protocolFeeVault_;
     }
 
+    function setSettlementManager(address settlementManager_) external onlyOwner {
+        require(settlementManager_ != address(0), "ZERO_SETTLEMENT_MANAGER");
+        require(settlementManager == address(0), "SETTLEMENT_MANAGER_SET");
+        settlementManager = settlementManager_;
+        emit SettlementManagerUpdated(settlementManager_);
+    }
+
     function joinRoom(uint256 roomId) external nonReentrant {
         RoomView memory room = factory.getRoom(roomId);
         require(room.status == 0, "ROOM_NOT_LOBBY");
         require(!joined[roomId][msg.sender], "ALREADY_JOINED");
-        require(roomPlayers[roomId].length < room.maxPlayers, "ROOM_FULL");
+        require(activePlayerCount[roomId] < room.maxPlayers, "ROOM_FULL");
         joined[roomId][msg.sender] = true;
-        roomPlayers[roomId].push(msg.sender);
+        refunded[roomId][msg.sender] = false;
+        if (!seenPlayer[roomId][msg.sender]) {
+            seenPlayer[roomId][msg.sender] = true;
+            roomPlayers[roomId].push(msg.sender);
+        }
+        activePlayerCount[roomId] += 1;
         escrowed[roomId] += room.entryFee;
         IERC20(room.entryToken).safeTransferFrom(msg.sender, address(this), room.entryFee);
         emit RoomJoined(roomId, msg.sender);
@@ -58,7 +74,7 @@ contract FXBentoRoomEscrow is AccessManaged, ReentrancyGuard {
         require(room.status == 0, "ROOM_STARTED");
         require(joined[roomId][msg.sender], "NOT_JOINED");
         joined[roomId][msg.sender] = false;
-        refunded[roomId][msg.sender] = true;
+        activePlayerCount[roomId] -= 1;
         escrowed[roomId] -= room.entryFee;
         IERC20(room.entryToken).safeTransfer(msg.sender, room.entryFee);
         emit RoomLeft(roomId, msg.sender);
@@ -67,11 +83,9 @@ contract FXBentoRoomEscrow is AccessManaged, ReentrancyGuard {
     function cancelRoom(uint256 roomId) external {
         RoomView memory room = factory.getRoom(roomId);
         require(room.status == 0, "ROOM_NOT_LOBBY");
-        require(
-            roomPlayers[roomId].length < room.minPlayers || block.timestamp > room.startTime + room.roundDuration,
-            "CANNOT_CANCEL"
-        );
-        factory.setRoomStatus(roomId, 4);
+        require(block.timestamp >= room.startTime, "START_PENDING");
+        require(activePlayerCount[roomId] < room.minPlayers, "CANNOT_CANCEL");
+        factory.transitionRoomStatus(roomId, 0, 4);
         emit RoomCancelled(roomId);
     }
 
@@ -89,25 +103,35 @@ contract FXBentoRoomEscrow is AccessManaged, ReentrancyGuard {
     function lockRoom(uint256 roomId) external {
         RoomView memory room = factory.getRoom(roomId);
         require(room.status == 0, "ROOM_NOT_LOBBY");
-        require(roomPlayers[roomId].length >= room.minPlayers, "BELOW_MIN_PLAYERS");
-        factory.setRoomStatus(roomId, 1);
+        require(block.timestamp >= room.startTime, "START_PENDING");
+        require(activePlayerCount[roomId] >= room.minPlayers, "BELOW_MIN_PLAYERS");
+        factory.transitionRoomStatus(roomId, 0, 1);
         emit RoomLocked(roomId, escrowed[roomId]);
     }
 
-    function settleRoom(uint256 roomId, bytes32 root, bytes calldata) public onlyRole(SETTLER_ROLE) {
+    function markSettling(uint256 roomId) external onlyRole(SETTLER_ROLE) {
+        RoomView memory room = factory.getRoom(roomId);
+        require(room.status == 1, "ROOM_NOT_LOCKED");
+        factory.transitionRoomStatus(roomId, 1, 2);
+    }
+
+    function settleRoom(uint256 roomId, bytes32 root, bytes calldata) public {
+        require(msg.sender == settlementManager, "NOT_SETTLEMENT_MANAGER");
         require(resultsRoot[roomId] == bytes32(0), "ALREADY_SETTLED");
         RoomView memory room = factory.getRoom(roomId);
         require(room.status == 1 || room.status == 2, "ROOM_NOT_SETTLING");
+        require(root != bytes32(0), "ZERO_ROOT");
         uint256 fee = escrowed[roomId] * room.rakeBps / BPS;
         protocolFee[roomId] = fee;
         resultsRoot[roomId] = root;
-        factory.setRoomStatus(roomId, 3);
+        factory.transitionRoomStatus(roomId, room.status, 3);
         emit RoomSettled(roomId, root, fee);
     }
 
     function claimPrize(uint256 roomId, uint256 amount, bytes32[] calldata proof) external nonReentrant {
         RoomView memory room = factory.getRoom(roomId);
         require(room.status == 3, "ROOM_NOT_SETTLED");
+        require(joined[roomId][msg.sender], "NOT_PLAYER");
         require(!prizeClaimed[roomId][msg.sender], "PRIZE_CLAIMED");
         bytes32 leaf = keccak256(abi.encode(roomId, msg.sender, amount));
         require(MerkleProof.verify(proof, resultsRoot[roomId], leaf), "BAD_PROOF");

@@ -15,6 +15,7 @@ contract FXBentoSettlementManager is AccessManaged {
         uint64 submittedAt;
         bool challenged;
         bool finalized;
+        bool resolved;
     }
 
     uint64 public challengeWindow = 10 minutes;
@@ -24,6 +25,7 @@ contract FXBentoSettlementManager is AccessManaged {
 
     event ResultsSubmitted(uint256 indexed roomId, bytes32 indexed resultsRoot, string metadataURI);
     event ResultsChallenged(uint256 indexed roomId, bytes proof);
+    event ChallengeResolved(uint256 indexed roomId, bool accepted);
     event ResultsFinalized(uint256 indexed roomId, bytes32 indexed resultsRoot);
 
     constructor(address owner_, FXBentoRoomFactory factory_, FXBentoRoomEscrow escrow_) AccessManaged(owner_) {
@@ -44,7 +46,7 @@ contract FXBentoSettlementManager is AccessManaged {
         require(pendingResults[roomId].submittedAt == 0, "ALREADY_SUBMITTED");
         require(resultsRoot != bytes32(0), "ZERO_ROOT");
         pendingResults[roomId] =
-            PendingResults(resultsRoot, metadataURI, attestation, uint64(block.timestamp), false, false);
+            PendingResults(resultsRoot, metadataURI, attestation, uint64(block.timestamp), false, false, false);
         emit ResultsSubmitted(roomId, resultsRoot, metadataURI);
     }
 
@@ -54,6 +56,25 @@ contract FXBentoSettlementManager is AccessManaged {
         require(block.timestamp <= pending.submittedAt + challengeWindow, "CHALLENGE_CLOSED");
         pending.challenged = true;
         emit ResultsChallenged(roomId, proof);
+    }
+
+    function resolveChallenge(uint256 roomId, bool accepted, bytes32 replacementRoot, string calldata metadataURI)
+        external
+        onlyOwner
+    {
+        PendingResults storage pending = pendingResults[roomId];
+        require(pending.submittedAt != 0, "NO_RESULTS");
+        require(pending.challenged, "NOT_CHALLENGED");
+        require(!pending.finalized, "FINALIZED");
+        if (accepted) {
+            require(replacementRoot != bytes32(0), "ZERO_ROOT");
+            pending.resultsRoot = replacementRoot;
+            pending.metadataURI = metadataURI;
+            pending.submittedAt = uint64(block.timestamp);
+        }
+        pending.challenged = false;
+        pending.resolved = true;
+        emit ChallengeResolved(roomId, accepted);
     }
 
     function finalizeResults(uint256 roomId) external {

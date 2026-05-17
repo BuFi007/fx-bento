@@ -9,6 +9,11 @@ contract FXBentoRoomFactory is Pausable {
     using PoolIdLibrary for PoolKey;
 
     uint16 public constant BPS = 10_000;
+    uint8 public constant STATUS_LOBBY = 0;
+    uint8 public constant STATUS_LOCKED = 1;
+    uint8 public constant STATUS_SETTLING = 2;
+    uint8 public constant STATUS_SETTLED = 3;
+    uint8 public constant STATUS_CANCELLED = 4;
     uint16 public maxRakeBps = 1_000;
     uint16 public protocolMaxPlayers = 20;
     uint256 public nextRoomId = 1;
@@ -53,6 +58,9 @@ contract FXBentoRoomFactory is Pausable {
         require(config.maxPlayers <= protocolMaxPlayers, "MAX_PLAYERS_TOO_HIGH");
         require(config.minPlayers >= 2 && config.minPlayers <= config.maxPlayers, "BAD_PLAYER_LIMITS");
         require(config.rounds > 0, "NO_ROUNDS");
+        require(config.roundDuration > 0, "NO_ROUND_DURATION");
+        require(config.lockBuffer < config.roundDuration, "BAD_LOCK_BUFFER");
+        require(config.startTime > block.timestamp, "START_NOT_FUTURE");
         require(config.entryFee > 0, "NO_ENTRY_FEE");
         require(_sum(config.payoutBps) == BPS, "BAD_PAYOUT_SPLIT");
         PoolId poolId = PoolIdLibrary.toId(config.poolKey);
@@ -75,16 +83,22 @@ contract FXBentoRoomFactory is Pausable {
             gridConfigHash: config.gridConfigHash,
             isPrivate: config.isPrivate,
             inviteCodeHash: config.inviteCodeHash,
-            status: 0
+            status: STATUS_LOBBY
         });
         emit RoomCreated(roomId, poolId, config.entryToken, config.entryFee);
     }
 
-    function setRoomStatus(uint256 roomId, uint8 status) external {
-        require(msg.sender == escrow || msg.sender == owner, "NOT_ROOM_AUTH");
+    function transitionRoomStatus(uint256 roomId, uint8 expectedStatus, uint8 nextStatus) external {
+        require(msg.sender == escrow, "NOT_ESCROW");
         require(rooms[roomId].entryToken != address(0), "ROOM_NOT_FOUND");
-        rooms[roomId].status = status;
-        emit RoomStatusUpdated(roomId, status);
+        require(rooms[roomId].status == expectedStatus, "BAD_ROOM_STATUS");
+        require(_allowedTransition(expectedStatus, nextStatus), "BAD_TRANSITION");
+        rooms[roomId].status = nextStatus;
+        emit RoomStatusUpdated(roomId, nextStatus);
+    }
+
+    function roomExists(uint256 roomId) external view returns (bool) {
+        return rooms[roomId].entryToken != address(0);
     }
 
     function getRoom(uint256 roomId) external view returns (RoomView memory) {
@@ -101,5 +115,18 @@ contract FXBentoRoomFactory is Pausable {
         for (uint256 i; i < values.length; i++) {
             total += values[i];
         }
+    }
+
+    function _allowedTransition(uint8 from, uint8 to) internal pure returns (bool) {
+        if (from == STATUS_LOBBY) {
+            return to == STATUS_LOCKED || to == STATUS_CANCELLED;
+        }
+        if (from == STATUS_LOCKED) {
+            return to == STATUS_SETTLING || to == STATUS_SETTLED;
+        }
+        if (from == STATUS_SETTLING) {
+            return to == STATUS_SETTLED;
+        }
+        return false;
     }
 }

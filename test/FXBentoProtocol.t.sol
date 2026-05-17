@@ -9,6 +9,7 @@ import {FXBentoRoomFactory} from "../src/FXBentoRoomFactory.sol";
 import {FXBentoRoomEscrow} from "../src/FXBentoRoomEscrow.sol";
 import {FXBentoRoundManager} from "../src/FXBentoRoundManager.sol";
 import {FXBentoCommitmentManager} from "../src/FXBentoCommitmentManager.sol";
+import {FXBentoSettlementManager} from "../src/FXBentoSettlementManager.sol";
 import {FXBentoScoring} from "../src/FXBentoScoring.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
 import {PoolKey, RoomConfig, TileSelection, PoolIdLibrary} from "../src/libraries/FXBentoTypes.sol";
@@ -31,6 +32,7 @@ contract FXBentoProtocolTest is Test {
     address alice = address(0xA11CE);
     address bob = address(0xB0B);
     address carol = address(0xCA012);
+    address poolManager = address(0x9001);
 
     MockUSDC usdc;
     PoolRegistry registry;
@@ -40,6 +42,7 @@ contract FXBentoProtocolTest is Test {
     FXBentoRoomEscrow escrow;
     FXBentoRoundManager rounds;
     FXBentoCommitmentManager commitments;
+    FXBentoSettlementManager settlement;
     ScoringHarness scoring;
     PoolKey key;
 
@@ -47,15 +50,18 @@ contract FXBentoProtocolTest is Test {
         usdc = new MockUSDC();
         registry = new PoolRegistry(owner);
         vault = new ProtocolFeeVault(owner, treasury);
-        hook = new FXBentoHook(owner, registry, vault);
+        hook = new FXBentoHook(owner, poolManager, registry, vault);
         key = PoolKey(address(usdc), address(0xE00C), 500, 10, address(hook));
         registry.setPool(key, address(0x0A11CE), true, 300);
         factory = new FXBentoRoomFactory(owner, registry);
         escrow = new FXBentoRoomEscrow(owner, factory, vault);
         factory.setEscrow(address(escrow));
         factory.setEntryToken(address(usdc), true);
-        rounds = new FXBentoRoundManager(owner);
-        commitments = new FXBentoCommitmentManager(owner, rounds);
+        rounds = new FXBentoRoundManager(owner, factory);
+        settlement = new FXBentoSettlementManager(owner, factory, escrow);
+        escrow.setSettlementManager(address(settlement));
+        settlement.setChallengeWindow(0);
+        commitments = new FXBentoCommitmentManager(owner, rounds, escrow);
         scoring = new ScoringHarness();
 
         usdc.mint(alice, 1_000e6);
@@ -85,6 +91,7 @@ contract FXBentoProtocolTest is Test {
     function testCannotStartBelowMinPlayers() public {
         uint256 roomId = _createRoom(2, 20);
         _join(alice, roomId);
+        vm.warp(factory.getRoom(roomId).startTime);
         vm.expectRevert("BELOW_MIN_PLAYERS");
         escrow.lockRoom(roomId);
     }
@@ -92,6 +99,7 @@ contract FXBentoProtocolTest is Test {
     function testRefundIfCancelled() public {
         uint256 roomId = _createRoom(2, 20);
         _join(alice, roomId);
+        vm.warp(factory.getRoom(roomId).startTime);
         escrow.cancelRoom(roomId);
         uint256 beforeBalance = usdc.balanceOf(alice);
         vm.prank(alice);
@@ -112,43 +120,61 @@ contract FXBentoProtocolTest is Test {
     }
 
     function testCommitAndRevealValidSelection() public {
+        uint256 roomId = _startedRoom();
         rounds.startRound(
-            1, 0, uint64(block.timestamp), uint64(block.timestamp + 120), uint64(block.timestamp + 60), bytes32("grid")
+            roomId,
+            0,
+            uint64(block.timestamp),
+            uint64(block.timestamp + 60),
+            uint64(block.timestamp + 50),
+            bytes32("grid")
         );
         TileSelection memory selection = _selectionOne();
         bytes32 selectedHash =
             keccak256(abi.encode(selection.rows, selection.cols, selection.chipCount, selection.clientStateHash));
         bytes32 nonce = bytes32("nonce");
-        bytes32 commitment = commitments.hashSelection(1, 0, alice, selectedHash, nonce);
+        bytes32 commitment = commitments.hashSelection(roomId, 0, alice, selectedHash, nonce);
 
         vm.prank(alice);
-        commitments.commitSelection(1, 0, commitment);
-        vm.warp(block.timestamp + 61);
+        commitments.commitSelection(roomId, 0, commitment);
+        vm.warp(block.timestamp + 51);
         vm.prank(alice);
-        commitments.revealSelection(1, 0, selection, nonce);
-        assertEq(commitments.revealedSelectionHash(1, 0, alice), selectedHash);
+        commitments.revealSelection(roomId, 0, selection, nonce);
+        assertEq(commitments.revealedSelectionHash(roomId, 0, alice), selectedHash);
     }
 
     function testRejectLateCommit() public {
+        uint256 roomId = _startedRoom();
         rounds.startRound(
-            1, 0, uint64(block.timestamp), uint64(block.timestamp + 120), uint64(block.timestamp + 60), bytes32("grid")
+            roomId,
+            0,
+            uint64(block.timestamp),
+            uint64(block.timestamp + 60),
+            uint64(block.timestamp + 50),
+            bytes32("grid")
         );
-        vm.warp(block.timestamp + 61);
+        vm.warp(block.timestamp + 51);
         vm.prank(alice);
         vm.expectRevert("COMMIT_CLOSED");
-        commitments.commitSelection(1, 0, bytes32("commitment"));
+        commitments.commitSelection(roomId, 0, bytes32("commitment"));
     }
 
     function testRejectRevealMismatch() public {
+        uint256 roomId = _startedRoom();
         rounds.startRound(
-            1, 0, uint64(block.timestamp), uint64(block.timestamp + 120), uint64(block.timestamp + 60), bytes32("grid")
+            roomId,
+            0,
+            uint64(block.timestamp),
+            uint64(block.timestamp + 60),
+            uint64(block.timestamp + 50),
+            bytes32("grid")
         );
         vm.prank(alice);
-        commitments.commitSelection(1, 0, bytes32("wrong"));
-        vm.warp(block.timestamp + 61);
+        commitments.commitSelection(roomId, 0, bytes32("wrong"));
+        vm.warp(block.timestamp + 51);
         vm.prank(alice);
         vm.expectRevert("REVEAL_MISMATCH");
-        commitments.revealSelection(1, 0, _selectionOne(), bytes32("nonce"));
+        commitments.revealSelection(roomId, 0, _selectionOne(), bytes32("nonce"));
     }
 
     function testRejectWallPattern() public {
@@ -212,7 +238,8 @@ contract FXBentoProtocolTest is Test {
         uint256 roomId = _startedRoom();
         uint256 prize = 9e6;
         bytes32 root = keccak256(abi.encode(roomId, alice, prize));
-        escrow.settleRoom(roomId, root, "");
+        settlement.submitResults(roomId, root, "ipfs://results", "");
+        settlement.finalizeResults(roomId);
         assertEq(escrow.protocolFee(roomId), 1e6);
 
         vm.prank(alice);
@@ -227,9 +254,10 @@ contract FXBentoProtocolTest is Test {
         uint256 roomId = _startedRoom();
         uint256 prize = 9e6;
         bytes32 root = keccak256(abi.encode(roomId, alice, prize));
-        escrow.settleRoom(roomId, root, "");
-        vm.expectRevert("ALREADY_SETTLED");
-        escrow.settleRoom(roomId, root, "");
+        settlement.submitResults(roomId, root, "ipfs://results", "");
+        settlement.finalizeResults(roomId);
+        vm.expectRevert("FINALIZED");
+        settlement.finalizeResults(roomId);
 
         vm.prank(alice);
         escrow.claimPrize(roomId, prize, new bytes32[](0));
@@ -245,11 +273,60 @@ contract FXBentoProtocolTest is Test {
     }
 
     function testHookSnapshotsAndVolatility() public {
+        vm.startPrank(poolManager);
         hook.afterInitialize(key, 1 << 96, 100);
-        hook.beforeSwap(key);
+        hook.beforeSwap(key, address(this));
         hook.afterSwap(key, uint160(1 << 96), 130);
         hook.afterSwap(key, uint160(1 << 96), 160);
+        vm.stopPrank();
         assertGt(hook.realizedVolatility(key.toId(), 2), 0);
+    }
+
+    function testHookRejectsSpoofedSnapshots() public {
+        vm.expectRevert("NOT_POOL_MANAGER");
+        hook.afterSwap(key, uint160(1 << 96), 130);
+    }
+
+    function testLeaveRejoinCanRefundAndDoesNotConsumeSeat() public {
+        uint256 roomId = _createRoom(2, 2);
+        _join(alice, roomId);
+        vm.prank(alice);
+        escrow.leaveRoom(roomId);
+        _join(alice, roomId);
+        _join(bob, roomId);
+        assertEq(escrow.activePlayerCount(roomId), 2);
+        vm.warp(factory.getRoom(roomId).startTime);
+        vm.expectRevert("ROOM_FULL");
+        _join(carol, roomId);
+    }
+
+    function testNonPlayerCannotCommitOrClaim() public {
+        uint256 roomId = _startedRoom();
+        rounds.startRound(
+            roomId,
+            0,
+            uint64(block.timestamp),
+            uint64(block.timestamp + 60),
+            uint64(block.timestamp + 50),
+            bytes32("grid")
+        );
+        vm.prank(carol);
+        vm.expectRevert("NOT_PLAYER");
+        commitments.commitSelection(roomId, 0, bytes32("commitment"));
+
+        uint256 prize = 9e6;
+        bytes32 root = keccak256(abi.encode(roomId, carol, prize));
+        settlement.submitResults(roomId, root, "ipfs://results", "");
+        settlement.finalizeResults(roomId);
+        vm.prank(carol);
+        vm.expectRevert("NOT_PLAYER");
+        escrow.claimPrize(roomId, prize, new bytes32[](0));
+    }
+
+    function testDirectEscrowSettlementBypassRejected() public {
+        uint256 roomId = _startedRoom();
+        vm.expectRevert("NOT_SETTLEMENT_MANAGER");
+        escrow.settleRoom(roomId, bytes32("root"), "");
     }
 
     function testFuzzPayoutInvariant(uint8 players, uint16 rakeBps) public {
@@ -275,6 +352,7 @@ contract FXBentoProtocolTest is Test {
         roomId = _createRoom(2, 20);
         _join(alice, roomId);
         _join(bob, roomId);
+        vm.warp(factory.getRoom(roomId).startTime);
         escrow.lockRoom(roomId);
     }
 
