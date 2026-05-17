@@ -1,32 +1,35 @@
 # FX Bento Payout Root Schema
 
-MVP prize claims currently use Merkle leaves:
+Prize claims use Merkle leaves:
 
 ```solidity
 keccak256(abi.encode(roomId, player, amount))
 ```
 
-Production settlement must bind more accounting before public paid rooms:
+Settlement now submits a typed `PayoutRoot` payload:
 
 ```text
-RoomPayoutRoot:
+PayoutRoot:
   roomId
+  winnerRoot
   rosterHash
-  rankingHash
+  leaderboardHash
   scoreRoot
   settlementPriceRoot
   payoutTotal
   protocolFee
   metadataHash
-  winnerLeafRoot
 ```
 
 Required invariants:
 
 - `payoutTotal + protocolFee <= escrowedRoomBalance`
+- `protocolFee == escrowedRoomBalance * room.rakeBps / 10_000`
+- `metadataHash == keccak256(bytes(metadataURI))`
+- `winnerRoot` is the Merkle root for `keccak256(abi.encode(roomId, player, amount))` leaves
 - every winner was an active paid entrant
-- every amount is derived from the immutable room payout split
+- every amount should be derived from the immutable room payout split
 - no duplicate winner leaves
 - leftovers have an explicit policy
 
-Until this schema is fully enforced on-chain or through an auditable attestation flow, settlement roots are MVP attestor outputs and should not be used for public paid rooms.
+The escrow stores the schema hash and aggregate totals, caps prize claims at `payoutTotal`, and also enforces `claimedPrizes + protocolFee <= escrowedRoomBalance`.

@@ -12,7 +12,15 @@ import {FXBentoCommitmentManager} from "../src/FXBentoCommitmentManager.sol";
 import {FXBentoSettlementManager} from "../src/FXBentoSettlementManager.sol";
 import {FXBentoScoring} from "../src/FXBentoScoring.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
-import {PoolId, PoolKey, RoomConfig, Round, TileSelection, PoolIdLibrary} from "../src/libraries/FXBentoTypes.sol";
+import {
+    PayoutRoot,
+    PoolId,
+    PoolKey,
+    RoomConfig,
+    Round,
+    TileSelection,
+    PoolIdLibrary
+} from "../src/libraries/FXBentoTypes.sol";
 import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
@@ -269,10 +277,18 @@ contract FXBentoProtocolTest is Test {
         uint256 roomId = _startedRoom();
         _settleAllRounds(roomId);
         uint256 prize = 9e6;
-        bytes32 root = keccak256(abi.encode(roomId, alice, prize));
-        settlement.submitResults(roomId, root, "ipfs://results", "");
+        PayoutRoot memory payout = _payoutRoot(roomId, alice, prize);
+        settlement.submitResults(roomId, payout, "ipfs://results", "");
         settlement.finalizeResults(roomId);
         assertEq(escrow.protocolFee(roomId), 1e6);
+        assertEq(escrow.payoutTotal(roomId), prize);
+        assertEq(escrow.resultsRoot(roomId), payout.winnerRoot);
+        assertEq(escrow.rosterHash(roomId), payout.rosterHash);
+        assertEq(escrow.leaderboardHash(roomId), payout.leaderboardHash);
+        assertEq(escrow.scoreRoot(roomId), payout.scoreRoot);
+        assertEq(escrow.settlementPriceRoot(roomId), payout.settlementPriceRoot);
+        assertEq(escrow.settlementMetadataHash(roomId), keccak256(bytes("ipfs://results")));
+        assertEq(escrow.payoutSchemaHash(roomId), escrow.hashPayoutRoot(payout));
 
         vm.prank(alice);
         escrow.claimPrize(roomId, prize, new bytes32[](0));
@@ -286,8 +302,8 @@ contract FXBentoProtocolTest is Test {
         uint256 roomId = _startedRoom();
         _settleAllRounds(roomId);
         uint256 prize = 9e6;
-        bytes32 root = keccak256(abi.encode(roomId, alice, prize));
-        settlement.submitResults(roomId, root, "ipfs://results", "");
+        PayoutRoot memory payout = _payoutRoot(roomId, alice, prize);
+        settlement.submitResults(roomId, payout, "ipfs://results", "");
         settlement.finalizeResults(roomId);
         vm.expectRevert("FINALIZED");
         settlement.finalizeResults(roomId);
@@ -391,9 +407,9 @@ contract FXBentoProtocolTest is Test {
         rounds.recordSettlement(roomId, 0);
 
         uint256 prize = 9e6;
-        bytes32 root = keccak256(abi.encode(roomId, carol, prize));
+        PayoutRoot memory payout = _payoutRoot(roomId, carol, prize);
         _settleRemainingRounds(roomId, 1);
-        settlement.submitResults(roomId, root, "ipfs://results", "");
+        settlement.submitResults(roomId, payout, "ipfs://results", "");
         settlement.finalizeResults(roomId);
         vm.prank(carol);
         vm.expectRevert("NOT_PLAYER");
@@ -403,7 +419,7 @@ contract FXBentoProtocolTest is Test {
     function testDirectEscrowSettlementBypassRejected() public {
         uint256 roomId = _startedRoom();
         vm.expectRevert("NOT_SETTLEMENT_MANAGER");
-        escrow.settleRoom(roomId, bytes32("root"), "");
+        escrow.settleRoom(roomId, _payoutRoot(roomId, alice, 9e6), "");
     }
 
     function testRoundStartRequiresFreshSnapshot() public {
@@ -476,9 +492,51 @@ contract FXBentoProtocolTest is Test {
 
     function testSettlementRejectsUnendedRounds() public {
         uint256 roomId = _startedRoom();
-        bytes32 root = keccak256(abi.encode(roomId, alice, 9e6));
         vm.expectRevert("ROUNDS_NOT_ENDED");
-        settlement.submitResults(roomId, root, "ipfs://results", "");
+        settlement.submitResults(roomId, _payoutRoot(roomId, alice, 9e6), "ipfs://results", "");
+    }
+
+    function testSettlementRejectsOverallocatedPayoutRoot() public {
+        uint256 roomId = _startedRoom();
+        _settleAllRounds(roomId);
+        PayoutRoot memory payout = _payoutRoot(roomId, alice, 9e6);
+        payout.payoutTotal = 10e6;
+
+        vm.expectRevert("PAYOUT_EXCEEDS_ESCROW");
+        settlement.submitResults(roomId, payout, "ipfs://results", "");
+    }
+
+    function testSettlementRejectsBadProtocolFee() public {
+        uint256 roomId = _startedRoom();
+        _settleAllRounds(roomId);
+        PayoutRoot memory payout = _payoutRoot(roomId, alice, 9e6);
+        payout.protocolFee = 2e6;
+
+        vm.expectRevert("BAD_PROTOCOL_FEE");
+        settlement.submitResults(roomId, payout, "ipfs://results", "");
+    }
+
+    function testSettlementRejectsMetadataMismatch() public {
+        uint256 roomId = _startedRoom();
+        _settleAllRounds(roomId);
+        PayoutRoot memory payout = _payoutRoot(roomId, alice, 9e6);
+        payout.metadataHash = keccak256(bytes("ipfs://other"));
+
+        vm.expectRevert("METADATA_MISMATCH");
+        settlement.submitResults(roomId, payout, "ipfs://results", "");
+    }
+
+    function testPrizeClaimCannotExceedCommittedPayoutTotal() public {
+        uint256 roomId = _startedRoom();
+        _settleAllRounds(roomId);
+        PayoutRoot memory payout = _payoutRoot(roomId, alice, 9e6);
+        payout.payoutTotal = 8e6;
+        settlement.submitResults(roomId, payout, "ipfs://results", "");
+        settlement.finalizeResults(roomId);
+
+        vm.prank(alice);
+        vm.expectRevert("PRIZE_EXCEEDS_TOTAL");
+        escrow.claimPrize(roomId, 9e6, new bytes32[](0));
     }
 
     function testFuzzPayoutInvariant(uint8 players, uint16 rakeBps) public {
@@ -562,6 +620,20 @@ contract FXBentoProtocolTest is Test {
 
     function _recordHookSnapshot(int24 tick) internal {
         hook.recordSnapshotForTesting(key, uint160(1 << 96), tick);
+    }
+
+    function _payoutRoot(uint256 roomId, address winner, uint256 prize) internal pure returns (PayoutRoot memory) {
+        return PayoutRoot({
+            roomId: roomId,
+            winnerRoot: keccak256(abi.encode(roomId, winner, prize)),
+            rosterHash: keccak256(abi.encodePacked("roster", roomId)),
+            leaderboardHash: keccak256(abi.encodePacked("leaderboard", roomId)),
+            scoreRoot: keccak256(abi.encodePacked("score", roomId)),
+            settlementPriceRoot: keccak256(abi.encodePacked("settlement-price", roomId)),
+            payoutTotal: prize,
+            protocolFee: 1e6,
+            metadataHash: keccak256(bytes("ipfs://results"))
+        });
     }
 
     function _approve(address player) internal {

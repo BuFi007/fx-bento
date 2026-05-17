@@ -68,6 +68,18 @@ struct Round {
     uint8 status;
 }
 
+struct PayoutRoot {
+    uint256 roomId;
+    bytes32 winnerRoot;
+    bytes32 rosterHash;
+    bytes32 leaderboardHash;
+    bytes32 scoreRoot;
+    bytes32 settlementPriceRoot;
+    uint256 payoutTotal;
+    uint256 protocolFee;
+    bytes32 metadataHash;
+}
+
 library PoolIdLibrary {
     function toId(PoolKey memory key) internal pure returns (PoolId) {
         return PoolId.wrap(keccak256(abi.encode(key.currency0, key.currency1, key.fee, key.tickSpacing, key.hooks)));

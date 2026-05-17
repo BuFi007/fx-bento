@@ -3,7 +3,7 @@
 ## Assets
 
 - Player entry fees held by `FXBentoRoomEscrow`.
-- Prize claims represented by settlement Merkle roots.
+- Prize claims represented by typed settlement payloads and Merkle winner roots.
 - Protocol rake claimable only after successful settlement.
 - Market snapshots emitted by `FXBentoHook`.
 - Commit-reveal integrity for FX Bento tile selections.
@@ -23,7 +23,7 @@ The protocol never pays winners from a vault, never quotes uncapped multipliers,
 
 ## Main Risks
 
-- Malicious settlement root: mitigated by attestor roles, challenge window in `FXBentoSettlementManager`, Merkle claims, and payout cap checks in escrow.
+- Malicious settlement root: mitigated by attestor roles, challenge window in `FXBentoSettlementManager`, typed payout payload validation, Merkle claims, and payout cap checks in escrow.
 - Admin fund theft: no arbitrary room escrow withdrawal function exists.
 - Double claims: `prizeClaimed` and `protocolFeeClaimed` gates.
 - Late selection changes: commit must happen before `lockTime`; reveal must match commitment after lock.
@@ -31,6 +31,7 @@ The protocol never pays winners from a vault, never quotes uncapped multipliers,
 - Hook overreach: hook does not custody player funds or settle winners, implements canonical v4-core `IHooks`, uses no return-delta permissions, and callback-style snapshot writes are restricted to the configured PoolManager address.
 - Hook callback surface: `afterInitialize` imports registry approval into hook-local pool state, and swap callbacks check hook-local allowlist state instead of calling the registry on every swap.
 - Round anchoring: round start and settlement require fresh hook snapshots, store anchor and settlement snapshot ids, and final results cannot be submitted until every configured round has ended.
+- Payout over-allocation: settlement payloads bind payout total, protocol fee, roster hash, leaderboard hash, score root, settlement price root, and metadata hash; escrow caps claims to the committed payout total and `claimedPrizes + protocolFee <= escrow`.
 - Emergency pause abuse: pause is scoped to new hook swap context and factory room creation; refunds and claims remain available through escrow status.
 
 ## MVP Limitations

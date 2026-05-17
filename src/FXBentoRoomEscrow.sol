@@ -4,7 +4,7 @@ pragma solidity ^0.8.24;
 import {AccessManaged, ReentrancyGuard} from "./libraries/Guards.sol";
 import {IERC20, SafeERC20} from "./libraries/MinimalTokens.sol";
 import {MerkleProof} from "./libraries/MerkleProof.sol";
-import {RoomView} from "./libraries/FXBentoTypes.sol";
+import {PayoutRoot, RoomView} from "./libraries/FXBentoTypes.sol";
 import {FXBentoRoomFactory} from "./FXBentoRoomFactory.sol";
 import {ProtocolFeeVault} from "./ProtocolFeeVault.sol";
 
@@ -25,8 +25,15 @@ contract FXBentoRoomEscrow is AccessManaged, ReentrancyGuard {
     mapping(uint256 => mapping(address => bool)) public prizeClaimed;
     mapping(uint256 => uint16) public activePlayerCount;
     mapping(uint256 => bytes32) public resultsRoot;
+    mapping(uint256 => bytes32) public payoutSchemaHash;
+    mapping(uint256 => bytes32) public rosterHash;
+    mapping(uint256 => bytes32) public leaderboardHash;
+    mapping(uint256 => bytes32) public scoreRoot;
+    mapping(uint256 => bytes32) public settlementPriceRoot;
+    mapping(uint256 => bytes32) public settlementMetadataHash;
     mapping(uint256 => uint256) public escrowed;
     mapping(uint256 => uint256) public protocolFee;
+    mapping(uint256 => uint256) public payoutTotal;
     mapping(uint256 => uint256) public totalPrizeClaimed;
     mapping(uint256 => bool) public protocolFeeClaimed;
 
@@ -34,7 +41,13 @@ contract FXBentoRoomEscrow is AccessManaged, ReentrancyGuard {
     event RoomLeft(uint256 indexed roomId, address indexed player);
     event RoomCancelled(uint256 indexed roomId);
     event RoomLocked(uint256 indexed roomId, uint256 escrowed);
-    event RoomSettled(uint256 indexed roomId, bytes32 resultsRoot, uint256 protocolFee);
+    event RoomSettled(
+        uint256 indexed roomId,
+        bytes32 indexed resultsRoot,
+        bytes32 indexed payoutSchemaHash,
+        uint256 payoutTotal,
+        uint256 protocolFee
+    );
     event Refunded(uint256 indexed roomId, address indexed player, uint256 amount);
     event PrizeClaimed(uint256 indexed roomId, address indexed player, uint256 amount);
     event ProtocolFeeClaimed(uint256 indexed roomId, uint256 amount);
@@ -115,17 +128,31 @@ contract FXBentoRoomEscrow is AccessManaged, ReentrancyGuard {
         factory.transitionRoomStatus(roomId, 1, 2);
     }
 
-    function settleRoom(uint256 roomId, bytes32 root, bytes calldata) public {
+    function settleRoom(uint256 roomId, PayoutRoot calldata payout, bytes calldata) public {
         require(msg.sender == settlementManager, "NOT_SETTLEMENT_MANAGER");
         require(resultsRoot[roomId] == bytes32(0), "ALREADY_SETTLED");
         RoomView memory room = factory.getRoom(roomId);
         require(room.status == 1 || room.status == 2, "ROOM_NOT_SETTLING");
-        require(root != bytes32(0), "ZERO_ROOT");
-        uint256 fee = escrowed[roomId] * room.rakeBps / BPS;
-        protocolFee[roomId] = fee;
-        resultsRoot[roomId] = root;
+        require(payout.roomId == roomId, "ROOM_MISMATCH");
+        require(payout.winnerRoot != bytes32(0), "ZERO_ROOT");
+        require(payout.rosterHash != bytes32(0), "ZERO_ROSTER");
+        require(payout.leaderboardHash != bytes32(0), "ZERO_LEADERBOARD");
+        require(payout.scoreRoot != bytes32(0), "ZERO_SCORE_ROOT");
+        require(payout.settlementPriceRoot != bytes32(0), "ZERO_PRICE_ROOT");
+        uint256 expectedFee = escrowed[roomId] * room.rakeBps / BPS;
+        require(payout.protocolFee == expectedFee, "BAD_PROTOCOL_FEE");
+        require(payout.payoutTotal + payout.protocolFee <= escrowed[roomId], "PAYOUT_EXCEEDS_ESCROW");
+        protocolFee[roomId] = payout.protocolFee;
+        payoutTotal[roomId] = payout.payoutTotal;
+        resultsRoot[roomId] = payout.winnerRoot;
+        rosterHash[roomId] = payout.rosterHash;
+        leaderboardHash[roomId] = payout.leaderboardHash;
+        scoreRoot[roomId] = payout.scoreRoot;
+        settlementPriceRoot[roomId] = payout.settlementPriceRoot;
+        settlementMetadataHash[roomId] = payout.metadataHash;
+        payoutSchemaHash[roomId] = hashPayoutRoot(payout);
         factory.transitionRoomStatus(roomId, room.status, 3);
-        emit RoomSettled(roomId, root, fee);
+        emit RoomSettled(roomId, payout.winnerRoot, payoutSchemaHash[roomId], payout.payoutTotal, payout.protocolFee);
     }
 
     function claimPrize(uint256 roomId, uint256 amount, bytes32[] calldata proof) external nonReentrant {
@@ -135,6 +162,7 @@ contract FXBentoRoomEscrow is AccessManaged, ReentrancyGuard {
         require(!prizeClaimed[roomId][msg.sender], "PRIZE_CLAIMED");
         bytes32 leaf = keccak256(abi.encode(roomId, msg.sender, amount));
         require(MerkleProof.verify(proof, resultsRoot[roomId], leaf), "BAD_PROOF");
+        require(totalPrizeClaimed[roomId] + amount <= payoutTotal[roomId], "PRIZE_EXCEEDS_TOTAL");
         require(totalPrizeClaimed[roomId] + amount + protocolFee[roomId] <= escrowed[roomId], "PAYOUT_EXCEEDS_ESCROW");
         prizeClaimed[roomId][msg.sender] = true;
         totalPrizeClaimed[roomId] += amount;
@@ -146,6 +174,7 @@ contract FXBentoRoomEscrow is AccessManaged, ReentrancyGuard {
         RoomView memory room = factory.getRoom(roomId);
         require(room.status == 3, "ROOM_NOT_SETTLED");
         require(!protocolFeeClaimed[roomId], "FEE_CLAIMED");
+        require(totalPrizeClaimed[roomId] + protocolFee[roomId] <= escrowed[roomId], "PAYOUT_EXCEEDS_ESCROW");
         protocolFeeClaimed[roomId] = true;
         IERC20(room.entryToken).safeTransfer(address(protocolFeeVault), protocolFee[roomId]);
         protocolFeeVault.notifyFee(room.entryToken, roomId, protocolFee[roomId]);
@@ -154,5 +183,21 @@ contract FXBentoRoomEscrow is AccessManaged, ReentrancyGuard {
 
     function players(uint256 roomId) external view returns (address[] memory) {
         return roomPlayers[roomId];
+    }
+
+    function hashPayoutRoot(PayoutRoot memory payout) public pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                payout.roomId,
+                payout.winnerRoot,
+                payout.rosterHash,
+                payout.leaderboardHash,
+                payout.scoreRoot,
+                payout.settlementPriceRoot,
+                payout.payoutTotal,
+                payout.protocolFee,
+                payout.metadataHash
+            )
+        );
     }
 }
