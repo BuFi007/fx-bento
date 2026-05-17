@@ -8,7 +8,6 @@ These tasks are deferred from `/autoplan` and should be handled before public pa
 - Make `FXBentoSettlementManager` the authoritative settlement path for escrow roots.
 - Replace arbitrary room status writes with a room lifecycle transition table.
 - Require paid active membership for commit/reveal and prize eligibility.
-- Add invariant tests for `claimed prizes + claimed fees + refundable/current escrow accounting <= token balance`.
 
 ## P0 Validation
 
