@@ -9,9 +9,12 @@ This slice turns the scaffold into a contract-aligned application surface withou
 - Room status constants for `Lobby`, `Locked`, `Settling`, `Settled`, and `Cancelled`.
 - `roomFlowActions(...)` for frontend CTA gating from indexed contract state.
 - Transaction builders for create, join, leave, cancel, refund, lock, commit, batched commit, reveal, claim prize, protocol fee claim, submit results, challenge, finalize, and rescue.
+- ERC20 approval transaction builder for entry-token allowance UX.
 - Commitment digest helpers that match `FXBentoCommitmentManager`'s Solidity signature path.
 
 The SDK helpers prepare transaction calldata only. They do not infer player eligibility or mutate room state.
+
+`bun run test:ts` covers the SDK transaction builder calldata and key room-state helper assumptions. `bun run verify` runs this TypeScript test target after Foundry tests.
 
 ## Backend Coordinator
 

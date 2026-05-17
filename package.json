@@ -6,8 +6,9 @@
     "test": "forge test",
     "build:contracts": "forge build",
     "backend:dev": "bun run backend/src/server.ts",
+    "test:ts": "bun test sdk/src/index.test.ts",
     "typecheck": "tsc --noEmit",
-    "verify": "forge fmt --check && forge build && forge test && bun run typecheck"
+    "verify": "forge fmt --check && forge build && forge test && bun run test:ts && bun run typecheck"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.4",

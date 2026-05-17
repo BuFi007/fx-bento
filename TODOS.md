@@ -55,6 +55,7 @@ Remaining P1 production work:
 - Frontend join, refund, commit, and claim CTAs now use wallet-backed viem transaction requests from SDK tx builders when contract addresses and contract room ids are available.
 - Wallet CTAs now detect wrong chain, request chain switching, preflight ERC20 balance/allowance before join, persist commit nonce/selection for reveal, and prefer indexed claim allocations from room state.
 - Low entry-token allowance now exposes an explicit approve CTA backed by an SDK ERC20 approve transaction builder.
+- SDK transaction builders and room-state helpers now have Bun tests included in `bun run verify`.
 
 Remaining P1 production work:
 
