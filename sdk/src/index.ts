@@ -32,6 +32,42 @@ export type TileSelection = {
   clientStateHash: Hex;
 };
 
+export const ROOM_STATUS = {
+  Lobby: 0,
+  Locked: 1,
+  Settling: 2,
+  Settled: 3,
+  Cancelled: 4
+} as const;
+
+export type RoomStatus = (typeof ROOM_STATUS)[keyof typeof ROOM_STATUS];
+
+export type RoomLifecycleView = {
+  status: RoomStatus;
+  startTime: bigint;
+  minPlayers: number;
+  activePlayers: number;
+  rounds: number;
+  roundDuration: number;
+  resultsSubmitted?: boolean;
+  challengeOpen?: boolean;
+  settlementRescueDeadline?: bigint;
+};
+
+export type RoomFlowActions = {
+  canJoin: boolean;
+  canLeave: boolean;
+  canCancelFailedStart: boolean;
+  canLock: boolean;
+  canCommitOrReveal: boolean;
+  canSubmitResults: boolean;
+  canChallenge: boolean;
+  canFinalize: boolean;
+  canRefund: boolean;
+  canClaimPrize: boolean;
+  canRescue: boolean;
+};
+
 export const FX_BENTO_COPY = {
   protocol: "FX² Arcade Protocol",
   game: "FX Bento",
@@ -81,6 +117,27 @@ export function commitmentHash(args: {
       args.nonce
     ])
   );
+}
+
+export function roomFlowActions(room: RoomLifecycleView, now: bigint): RoomFlowActions {
+  const filled = room.activePlayers >= room.minPlayers;
+  const startReached = now >= room.startTime;
+  return {
+    canJoin: room.status === ROOM_STATUS.Lobby,
+    canLeave: room.status === ROOM_STATUS.Lobby,
+    canCancelFailedStart: room.status === ROOM_STATUS.Lobby && startReached && !filled,
+    canLock: room.status === ROOM_STATUS.Lobby && startReached && filled,
+    canCommitOrReveal: room.status === ROOM_STATUS.Locked || room.status === ROOM_STATUS.Settling,
+    canSubmitResults: room.status === ROOM_STATUS.Locked || room.status === ROOM_STATUS.Settling,
+    canChallenge: room.status === ROOM_STATUS.Settling && room.resultsSubmitted === true && room.challengeOpen === true,
+    canFinalize: room.status === ROOM_STATUS.Settling && room.resultsSubmitted === true && room.challengeOpen !== true,
+    canRefund: room.status === ROOM_STATUS.Cancelled,
+    canClaimPrize: room.status === ROOM_STATUS.Settled,
+    canRescue:
+      (room.status === ROOM_STATUS.Locked || room.status === ROOM_STATUS.Settling) &&
+      room.settlementRescueDeadline !== undefined &&
+      now >= room.settlementRescueDeadline
+  };
 }
 
 export function validateAntiWall(selection: TileSelection, maxRows = 5, maxCols = 8): string | null {

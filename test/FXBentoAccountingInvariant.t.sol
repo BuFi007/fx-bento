@@ -301,6 +301,16 @@ contract FXBentoAccountingInvariantTest is StdInvariant, Test {
         }
     }
 
+    function invariant_ActiveRosterMatchesRoomAccounting() public view {
+        uint256 count = handler.roomCount();
+        for (uint256 i; i < count; i++) {
+            uint256 roomId = handler.roomAt(i);
+            uint256 activeCount = _activeRosterCount(roomId);
+            assertEq(escrow.activePlayerCount(roomId), activeCount);
+            assertEq(escrow.escrowed(roomId), activeCount * factory.getRoom(roomId).entryFee);
+        }
+    }
+
     function invariant_NoTokensCreatedByLifecycle() public view {
         uint256 playerBalances = usdc.balanceOf(alice) + usdc.balanceOf(bob) + usdc.balanceOf(carol);
         uint256 protocolBalances = usdc.balanceOf(address(escrow)) + usdc.balanceOf(address(vault));
@@ -313,6 +323,15 @@ contract FXBentoAccountingInvariantTest is StdInvariant, Test {
             uint256 roomId = handler.roomAt(i);
             uint256 feePaid = escrow.protocolFeeClaimed(roomId) ? escrow.protocolFee(roomId) : 0;
             outstanding += escrow.escrowed(roomId) - escrow.totalPrizeClaimed(roomId) - feePaid;
+        }
+    }
+
+    function _activeRosterCount(uint256 roomId) internal view returns (uint256 activeCount) {
+        address[3] memory players = [alice, bob, carol];
+        for (uint256 i; i < players.length; i++) {
+            if (escrow.joined(roomId, players[i]) && !escrow.refunded(roomId, players[i])) {
+                activeCount += 1;
+            }
         }
     }
 

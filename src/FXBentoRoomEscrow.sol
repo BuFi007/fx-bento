@@ -116,6 +116,7 @@ contract FXBentoRoomEscrow is AccessManaged, ReentrancyGuard {
         require(joined[roomId][msg.sender] && !refunded[roomId][msg.sender], "NO_REFUND");
         refunded[roomId][msg.sender] = true;
         joined[roomId][msg.sender] = false;
+        activePlayerCount[roomId] -= 1;
         escrowed[roomId] -= room.entryFee;
         IERC20(room.entryToken).safeTransfer(msg.sender, room.entryFee);
         emit Refunded(roomId, msg.sender, room.entryFee);

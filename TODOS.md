@@ -16,6 +16,14 @@ No open P0 contract-safety tasks remain in this file.
 
 ## P0 Validation
 
+Complete in the MVP scaffold:
+
+- Room-first contract QA matrix for failed start, cancel, refund, settle, claim, challenge, and rescue paths.
+- SDK room-status assumptions and CTA gating helper.
+- Invariant coverage for active roster accounting, outstanding escrow, prize claims, protocol fee claims, and no token creation.
+
+Product validation gates before paid public rooms:
+
 - Build a room-first validation lobby and board-first game loop.
 - Validate room fill, score comprehension, refund comprehension, and replay/rematch interest.
 - Decide whether first validation mode includes free-play rooms before paid testnet rooms.

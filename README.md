@@ -52,13 +52,14 @@ bun run backend:dev
 
 ## Status
 
-This is an MVP scaffold with passing Foundry coverage for room creation, joins, max-player limits, min-player lock checks, cancellation refunds, paid active membership, commit-reveal, anti-wall rejection, scoring, hook snapshots, round anchoring, typed settlement payloads, challenge resolution, timeout rescue refunds, rake, prize claims, double-settlement prevention, and lifecycle accounting invariants.
+This is an MVP scaffold with passing Foundry coverage for room creation, joins, max-player limits, min-player lock checks, clean cancellation/refund failure paths, paid active membership, commit-reveal, anti-wall rejection, scoring, hook snapshots, round anchoring, typed settlement payloads, challenge resolution, timeout rescue refunds, rake, prize claims, double-settlement prevention, and lifecycle accounting invariants.
 
 Current hardening references:
 
 - `AGENTS.md`: agent and architecture guidance.
 - `docs/architecture-reference.md`: full validation-first architecture plan.
 - `docs/hook-deployment.md`: v4 permission-bit and deployment notes.
+- `docs/p0-validation-qa.md`: room-first QA matrix across contracts, SDK assumptions, and user-visible failure paths.
 - `docs/threat-model.md`: current trust boundaries and limitations.
 - `TODOS.md`: P0/P1 implementation queue.
 - `/Users/criptopoeta/.gstack/projects/BuFi007-fx-bento/main-autoplan-test-plan-20260516-205300.md`: expanded validation and invariant test plan.

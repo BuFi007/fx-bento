@@ -141,6 +141,25 @@ contract FXBentoProtocolTest is Test {
         vm.prank(alice);
         escrow.refund(roomId);
         assertEq(usdc.balanceOf(alice), beforeBalance + 5e6);
+        assertEq(escrow.activePlayerCount(roomId), 0);
+        assertEq(escrow.escrowed(roomId), 0);
+    }
+
+    function testCancelFailurePathsAreClean() public {
+        uint256 pendingRoomId = _createRoom(2, 20);
+        _join(alice, pendingRoomId);
+        vm.expectRevert("START_PENDING");
+        escrow.cancelRoom(pendingRoomId);
+
+        uint256 filledRoomId = _createRoom(2, 20);
+        _join(alice, filledRoomId);
+        _join(bob, filledRoomId);
+        vm.warp(factory.getRoom(filledRoomId).startTime);
+        vm.expectRevert("CANNOT_CANCEL");
+        escrow.cancelRoom(filledRoomId);
+
+        assertEq(uint8(factory.getRoom(pendingRoomId).status), 0);
+        assertEq(uint8(factory.getRoom(filledRoomId).status), 0);
     }
 
     function testNoRefundAfterRoomStarts() public {
@@ -627,6 +646,13 @@ contract FXBentoProtocolTest is Test {
         vm.prank(alice);
         escrow.refund(roomId);
         assertEq(usdc.balanceOf(alice), beforeBalance + 5e6);
+        assertEq(escrow.activePlayerCount(roomId), 1);
+        assertEq(escrow.escrowed(roomId), 5e6);
+
+        vm.prank(bob);
+        escrow.refund(roomId);
+        assertEq(escrow.activePlayerCount(roomId), 0);
+        assertEq(escrow.escrowed(roomId), 0);
     }
 
     function testRescuePendingSettlementBeforeDeadlineRejected() public {
@@ -653,6 +679,43 @@ contract FXBentoProtocolTest is Test {
         vm.prank(bob);
         escrow.refund(roomId);
         assertEq(escrow.escrowed(roomId), 5e6);
+    }
+
+    function testRescuedRoomCannotFinalizeOrClaimPrize() public {
+        settlement.setSettlementRescueDelay(10);
+        uint256 roomId = _startedRoom();
+        _settleAllRounds(roomId);
+        settlement.submitResults(roomId, _payoutRoot(roomId, alice, 9e6), "ipfs://results", "");
+
+        vm.warp(settlement.settlementRescueDeadline(roomId));
+        settlement.rescueFailedSettlement(roomId);
+
+        vm.expectRevert("ROOM_NOT_SETTLING");
+        settlement.finalizeResults(roomId);
+
+        vm.prank(alice);
+        vm.expectRevert("ROOM_NOT_SETTLED");
+        escrow.claimPrize(roomId, 9e6, new bytes32[](0));
+    }
+
+    function testClaimFailurePathsAreClean() public {
+        uint256 roomId = _startedRoom();
+        _settleAllRounds(roomId);
+        settlement.submitResults(roomId, _payoutRoot(roomId, alice, 9e6), "ipfs://results", "");
+
+        vm.prank(alice);
+        vm.expectRevert("ROOM_NOT_SETTLED");
+        escrow.claimPrize(roomId, 9e6, new bytes32[](0));
+
+        settlement.finalizeResults(roomId);
+
+        vm.prank(bob);
+        vm.expectRevert("BAD_PROOF");
+        escrow.claimPrize(roomId, 9e6, new bytes32[](0));
+
+        assertEq(escrow.totalPrizeClaimed(roomId), 0);
+        assertFalse(escrow.prizeClaimed(roomId, alice));
+        assertFalse(escrow.prizeClaimed(roomId, bob));
     }
 
     function testPrizeClaimCannotExceedCommittedPayoutTotal() public {
