@@ -25,7 +25,7 @@ import {
   keccak256,
   type Abi,
 } from "viem";
-import { z } from "zod";
+import z from "zod";
 
 export * from "./results";
 

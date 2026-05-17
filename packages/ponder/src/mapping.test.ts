@@ -296,6 +296,41 @@ describe("Ponder mapping helpers", () => {
     await expect(source.health()).resolves.toMatchObject({ status: "sql", ok: true, latestBlockNumber: "777" });
   });
 
+  test("reports direct SQL health from Ponder checkpoints when available", async () => {
+    const blockTimestamp = Math.floor(Date.now() / 1000) - 4;
+    const checkpoint = [
+      String(blockTimestamp).padStart(10, "0"),
+      "84532".padStart(16, "0"),
+      "888".padStart(16, "0"),
+      "0".padStart(16, "0"),
+      "5",
+      "0".padStart(16, "0"),
+    ].join("");
+    const source = createPonderSqlReadSource({
+      sql: async (strings) => {
+        const query = strings.join("?");
+        if (query.includes("from _ponder_checkpoint")) {
+          return [{ latest_checkpoint: checkpoint }];
+        }
+        if (query.includes("from fx_bento_event")) {
+          return [{ block_number: "777", timestamp: String(blockTimestamp - 20) }];
+        }
+        return [];
+      },
+    });
+
+    const health = await source.health();
+    expect(health).toMatchObject({
+      status: "sql",
+      ok: true,
+      source: "checkpoint",
+      latestBlockNumber: "888",
+      latestEventBlockNumber: "777",
+    });
+    expect(health.lagSeconds).toBeGreaterThanOrEqual(0);
+    expect(health.lagSeconds).toBeLessThan(30);
+  });
+
   test("reports remote Ponder lag from the latest indexed event", async () => {
     const latestTimestamp = String(Math.floor(Date.now() / 1000) - 5);
     const source = createPonderGraphqlReadSource({

@@ -1,7 +1,7 @@
 import { mcpWorkflowRoom } from "@bufinance/fx-bento-liveblocks";
 import { inspectFxBentoIndexedRoom, inspectPonderState } from "@bufinance/fx-bento-ponder";
 import { AddressSchema, WalletSessionSchema, nowIso } from "@bufinance/fx-bento-shared-types";
-import { z } from "zod";
+import z from "zod";
 
 export const WorkflowStatusSchema = z.enum([
   "draft",

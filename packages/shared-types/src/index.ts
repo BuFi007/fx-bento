@@ -1,4 +1,4 @@
-import { z } from "zod";
+import z from "zod";
 
 export const HexSchema = z.custom<`0x${string}`>(
   (value) => typeof value === "string" && /^0x[0-9a-fA-F]*$/.test(value),

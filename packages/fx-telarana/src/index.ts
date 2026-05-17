@@ -1,6 +1,6 @@
 import { getMarketPrice, listMarkets } from "@bufinance/fx-bento-market-data";
 import { AddressSchema, MarketIdSchema, assertFutureDeadline, normalizeAddress } from "@bufinance/fx-bento-shared-types";
-import { z } from "zod";
+import z from "zod";
 
 export const BorrowQuoteInputSchema = z.object({
   marketId: MarketIdSchema,

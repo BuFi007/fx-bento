@@ -7,7 +7,7 @@ import {
   runWorkflow,
 } from "@bufinance/fx-bento-mcp";
 import { Hono } from "hono";
-import { z } from "zod";
+import z from "zod";
 
 import { parseJson } from "../lib/validation";
 

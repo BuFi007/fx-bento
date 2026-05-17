@@ -1,5 +1,5 @@
 import { parseAbi, type Abi } from "viem";
-import { z } from "zod";
+import z from "zod";
 
 import { AddressSchema, type Address } from "@bufinance/fx-bento-shared-types";
 
@@ -309,7 +309,6 @@ export const FX_BENTO_POOL_REGISTRY_EVENTS = ["PoolAllowed"] as const;
 
 export const FX_BENTO_PROTOCOL_FEE_VAULT_EVENTS = [
   "TreasuryUpdated",
-  "FeeNotifierUpdated",
   "FeeReceived",
   "FeeSwept",
 ] as const;
@@ -455,15 +454,12 @@ export const POOL_REGISTRY_ABI = parseAbi([
 
 export const PROTOCOL_FEE_VAULT_ABI = parseAbi([
   "event TreasuryUpdated(address indexed treasury)",
-  "event FeeNotifierUpdated(address indexed feeNotifier)",
   "event FeeReceived(address indexed token, uint256 indexed roomId, uint256 amount)",
   "event FeeSwept(address indexed token, address indexed treasury, uint256 amount)",
   "function setTreasury(address treasury)",
-  "function setFeeNotifier(address feeNotifier)",
   "function notifyFee(address token, uint256 roomId, uint256 amount)",
   "function sweep(address token)",
   "function treasury() view returns (address)",
-  "function feeNotifier() view returns (address)",
 ]);
 
 export const FX_BENTO_SCORING_ABI = parseAbi([

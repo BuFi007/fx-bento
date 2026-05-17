@@ -5,7 +5,7 @@ import {
 } from "@bufinance/fx-bento-liveblocks";
 import { readEnv } from "@bufinance/fx-bento-env";
 import { Hono } from "hono";
-import { z } from "zod";
+import z from "zod";
 
 import { parseJson } from "../lib/validation";
 

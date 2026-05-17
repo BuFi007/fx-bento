@@ -8,7 +8,7 @@ import {
   type Address,
 } from "@bufinance/fx-bento-shared-types";
 import { verifyTypedData, type Hex } from "viem";
-import { z } from "zod";
+import z from "zod";
 
 export const PerpQuoteInputSchema = z.object({
   marketId: MarketIdSchema,
