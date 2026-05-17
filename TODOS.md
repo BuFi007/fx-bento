@@ -34,12 +34,13 @@ Product validation gates before paid public rooms:
 Complete in the MVP scaffold:
 
 - Backend room state is explicitly mock/indexer-facing, not money-authoritative.
+- Backend can ingest contract-style room lifecycle events and persist replay/idempotency state locally.
 - Liveblocks auth requires active room membership unless spectator mode is requested.
 - Commit/reveal endpoints are relay-only, idempotent, room-status gated, and commitment signatures can be verified against the Solidity digest.
 
 Remaining P1 production work:
 
-- Treat backend room state as event-derived from contract logs.
+- Add a chain log poller so backend room state is event-derived from contract logs without manual event ingestion.
 - Verify on-chain room membership/status before granting room access in production mode.
 - Persist commitment, reveal, settlement, and leaderboard inputs.
 - Add typed EIP-712 result attestation schema.

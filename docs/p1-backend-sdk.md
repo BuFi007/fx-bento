@@ -22,14 +22,35 @@ The SDK helpers prepare transaction calldata only. They do not infer player elig
 - `POST /arcade/rooms/:id/commit` requires active room membership, idempotently records commitments, and verifies optional batch signatures against the contract digest.
 - `POST /arcade/rooms/:id/reveal` requires active room membership, validates anti-wall selection rules, and idempotently records reveals.
 - `POST /arcade/rooms/:id/settle` moves locked rooms into settling and stores result metadata for the realtime UX.
+- `POST /arcade/events` ingests contract-style events and derives room state from them.
 - `POST /liveblocks/auth` grants Liveblocks access only to active players, or spectators when explicitly requested.
 
 This backend still does not custody funds, decide final payouts, or become the source of truth for claims/refunds. It is a relay and realtime coordinator.
 
+## Event-Derived State
+
+The local coordinator persists replay state to `FX_BENTO_STATE_PATH`, defaulting to `.fx-bento/backend-state.json`.
+
+Supported event names:
+
+- `RoomCreated`
+- `RoomJoined`
+- `RoomLeft`
+- `Refunded`
+- `RoomLocked`
+- `ResultsSubmitted`
+- `ResultsChallenged`
+- `ChallengeResolved`
+- `RoomSettled`
+- `RoomCancelled`
+- `SettlementRescued`
+
+Event ids are derived from `txHash:logIndex` when present. Otherwise the backend derives a deterministic local id from the event payload. Replayed events are skipped.
+
+Commit and reveal routes accept an optional `idempotencyKey`. A repeated request with the same key and same commitment/reveal hash is accepted as idempotent. A repeated key with different payload is rejected.
+
 ## Next P1 Work
 
-- Replace in-memory room records with event-derived persistence from contract logs.
-- Add a real indexer sync path for `RoomCreated`, `RoomJoined`, `RoomLeft`, `RoomLocked`, `RoomCancelled`, `RoomSettled`, `PrizeClaimed`, and `Refunded`.
-- Add persistent idempotency keys for commitment/reveal relay jobs.
+- Add a real chain log poller for the supported event set.
 - Add frontend components that consume `roomFlowActions(...)` directly.
 - Add integration tests for backend routes once the persistence layer is chosen.

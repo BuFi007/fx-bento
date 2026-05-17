@@ -2,6 +2,7 @@
 cache/
 out/
 node_modules/
+.fx-bento/
 
 # Ignores development broadcast logs
 !/broadcast

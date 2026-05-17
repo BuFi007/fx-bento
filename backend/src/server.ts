@@ -1,4 +1,6 @@
 import { Liveblocks } from "@liveblocks/node";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { getAddress, isAddress, recoverAddress, type Address, type Hex } from "viem";
@@ -51,10 +53,46 @@ type RevealRecord = {
   relayedTx?: Hex;
 };
 
+type IndexedEvent =
+  | {
+      type: "RoomCreated";
+      roomId: string;
+      localRoomId?: string;
+      market?: string;
+      entryFee?: string;
+      minPlayers?: number;
+      maxPlayers?: number;
+      rounds?: number;
+      roundDuration?: number;
+      startTime?: number;
+      txHash?: Hex;
+      logIndex?: number;
+    }
+  | { type: "RoomJoined" | "RoomLeft" | "Refunded"; roomId: string; player: Address; txHash?: Hex; logIndex?: number }
+  | { type: "RoomLocked" | "RoomCancelled"; roomId: string; txHash?: Hex; logIndex?: number }
+  | {
+      type: "RoomSettled";
+      roomId: string;
+      resultsRoot: Hex;
+      leaderboard?: Array<{ player: Address; score: number }>;
+      txHash?: Hex;
+      logIndex?: number;
+    }
+  | { type: "ResultsSubmitted"; roomId: string; resultsRoot: Hex; txHash?: Hex; logIndex?: number }
+  | { type: "ResultsChallenged"; roomId: string; txHash?: Hex; logIndex?: number }
+  | { type: "ChallengeResolved"; roomId: string; accepted: boolean; txHash?: Hex; logIndex?: number }
+  | { type: "SettlementRescued"; roomId: string; txHash?: Hex; logIndex?: number };
+
 const app = new Hono();
 const liveblocksSecret = process.env.LIVEBLOCKS_SECRET_KEY;
 const liveblocks = liveblocksSecret ? new Liveblocks({ secret: liveblocksSecret }) : null;
 const rooms = new Map<string, RoomRecord>();
+const roomIdByContractId = new Map<string, string>();
+const processedEvents = new Set<string>();
+const relayIdempotency = new Map<string, string>();
+const statePath = resolve(process.env.FX_BENTO_STATE_PATH ?? ".fx-bento/backend-state.json");
+
+loadState();
 
 app.use("*", cors());
 
@@ -83,6 +121,8 @@ app.post("/arcade/rooms", async (c) => {
     return c.json({ error: "invalid player limits" }, 400);
   }
   rooms.set(id, room);
+  if (room.contractRoomId) roomIdByContractId.set(room.contractRoomId, id);
+  saveState();
   return c.json(toPublicRoom(room), 201);
 });
 
@@ -108,6 +148,7 @@ app.post("/arcade/rooms/:id/join-intent", async (c) => {
     addUnique(room.activePlayers, player);
   }
 
+  saveState();
   return c.json({
     roomId: room.id,
     player,
@@ -136,6 +177,14 @@ app.post("/arcade/rooms/:id/commit", async (c) => {
     if (!verification.ok) return c.json({ error: verification.error }, 400);
   }
 
+  const idempotency = readIdempotencyKey(body.idempotencyKey);
+  const idempotencyKey = idempotency ? `commit:${room.id}:${idempotency}` : null;
+  if (idempotencyKey) {
+    const seenValue = relayIdempotency.get(idempotencyKey);
+    if (seenValue && seenValue !== commitment) return c.json({ error: "idempotency key conflict" }, 409);
+    if (seenValue === commitment) return c.json({ roomId: room.id, accepted: true, idempotent: true, commitment });
+  }
+
   const key = commitmentKey(roundIndex, player);
   const existing = room.commitments.get(key);
   if (existing && existing.commitment !== commitment) {
@@ -149,6 +198,8 @@ app.post("/arcade/rooms/:id/commit", async (c) => {
     relayedTx: normalizeHex(body.relayedTx) ?? undefined
   };
   room.commitments.set(key, existing ?? record);
+  if (idempotencyKey) relayIdempotency.set(idempotencyKey, commitment);
+  saveState();
   return c.json({ roomId: room.id, accepted: true, idempotent: Boolean(existing), commitment });
 });
 
@@ -171,6 +222,13 @@ app.post("/arcade/rooms/:id/reveal", async (c) => {
   const key = commitmentKey(roundIndex, player);
   if (!room.commitments.has(key)) return c.json({ error: "commitment not found" }, 409);
   const selectionHash = selectedTilesHash(selection);
+  const idempotency = readIdempotencyKey(body.idempotencyKey);
+  const idempotencyKey = idempotency ? `reveal:${room.id}:${idempotency}` : null;
+  if (idempotencyKey) {
+    const seenValue = relayIdempotency.get(idempotencyKey);
+    if (seenValue && seenValue !== selectionHash) return c.json({ error: "idempotency key conflict" }, 409);
+    if (seenValue === selectionHash) return c.json({ roomId: room.id, accepted: true, idempotent: true, selectionHash });
+  }
   const existing = room.reveals.get(key);
   if (existing && existing.selectionHash !== selectionHash) {
     return c.json({ error: "different reveal already recorded" }, 409);
@@ -184,6 +242,8 @@ app.post("/arcade/rooms/:id/reveal", async (c) => {
     relayedTx: normalizeHex(body.relayedTx) ?? undefined
   };
   room.reveals.set(key, existing ?? record);
+  if (idempotencyKey) relayIdempotency.set(idempotencyKey, selectionHash);
+  saveState();
   return c.json({ roomId: room.id, accepted: true, idempotent: Boolean(existing), selectionHash });
 });
 
@@ -209,7 +269,38 @@ app.post("/arcade/rooms/:id/settle", async (c) => {
   if (Array.isArray(body.leaderboard)) {
     room.leaderboard = body.leaderboard.flatMap((entry: unknown) => normalizeLeaderboardEntry(entry));
   }
+  saveState();
   return c.json(toPublicRoom(room));
+});
+
+app.post("/arcade/events", async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const candidates = Array.isArray(body.events) ? body.events : [body];
+  const applied: string[] = [];
+  const skipped: string[] = [];
+
+  for (const candidate of candidates) {
+    const event = normalizeIndexedEvent(candidate);
+    if (!event) {
+      skipped.push("invalid");
+      continue;
+    }
+    const eventId = indexedEventId(event);
+    if (processedEvents.has(eventId)) {
+      skipped.push(eventId);
+      continue;
+    }
+    const ok = applyIndexedEvent(event);
+    if (!ok) {
+      skipped.push(eventId);
+      continue;
+    }
+    processedEvents.add(eventId);
+    applied.push(eventId);
+  }
+
+  if (applied.length > 0) saveState();
+  return c.json({ applied, skipped, rooms: [...rooms.values()].map((room) => toPublicRoom(syncRoomStatus(room))) });
 });
 
 app.post("/liveblocks/auth", async (c) => {
@@ -232,7 +323,7 @@ app.post("/liveblocks/auth", async (c) => {
 });
 
 function getRoom(id: string): RoomRecord | undefined {
-  return rooms.get(id);
+  return rooms.get(id) ?? rooms.get(roomIdByContractId.get(id) ?? "");
 }
 
 function syncRoomStatus(room: RoomRecord): RoomRecord {
@@ -364,6 +455,179 @@ function statusLabel(status: RoomStatus): string {
   if (status === ROOM_STATUS.Settling) return "settling";
   if (status === ROOM_STATUS.Settled) return "settled";
   return "cancelled";
+}
+
+function normalizeIndexedEvent(value: unknown): IndexedEvent | null {
+  if (!value || typeof value !== "object") return null;
+  const event = value as Record<string, unknown>;
+  const type = typeof event.type === "string" ? event.type : "";
+  const roomId = typeof event.roomId === "string" ? event.roomId : null;
+  if (!roomId) return null;
+  const txHash = normalizeHex(event.txHash) ?? undefined;
+  const logIndex = event.logIndex === undefined ? undefined : readNumber(event.logIndex, -1);
+  const base = { roomId, txHash, logIndex: logIndex !== undefined && logIndex >= 0 ? logIndex : undefined };
+
+  if (type === "RoomCreated") {
+    return {
+      type,
+      ...base,
+      localRoomId: typeof event.localRoomId === "string" ? event.localRoomId : undefined,
+      market: typeof event.market === "string" ? event.market : undefined,
+      entryFee: typeof event.entryFee === "string" ? event.entryFee : undefined,
+      minPlayers: event.minPlayers === undefined ? undefined : readNumber(event.minPlayers, 2),
+      maxPlayers: event.maxPlayers === undefined ? undefined : readNumber(event.maxPlayers, 20),
+      rounds: event.rounds === undefined ? undefined : readNumber(event.rounds, 10),
+      roundDuration: event.roundDuration === undefined ? undefined : readNumber(event.roundDuration, 60),
+      startTime: event.startTime === undefined ? undefined : readNumber(event.startTime, nowSeconds() + 60)
+    };
+  }
+  if (type === "RoomJoined" || type === "RoomLeft" || type === "Refunded") {
+    const player = normalizeAddress(event.player);
+    return player ? { type, ...base, player } : null;
+  }
+  if (type === "RoomLocked" || type === "RoomCancelled" || type === "SettlementRescued") return { type, ...base };
+  if (type === "ResultsSubmitted" || type === "RoomSettled") {
+    const resultsRoot = normalizeHex(event.resultsRoot);
+    if (!resultsRoot) return null;
+    return {
+      type,
+      ...base,
+      resultsRoot,
+      leaderboard: Array.isArray(event.leaderboard)
+        ? event.leaderboard.flatMap((entry: unknown) => normalizeLeaderboardEntry(entry))
+        : undefined
+    };
+  }
+  if (type === "ResultsChallenged") return { type, ...base };
+  if (type === "ChallengeResolved") return { type, ...base, accepted: event.accepted === true };
+  return null;
+}
+
+function applyIndexedEvent(event: IndexedEvent): boolean {
+  if (event.type === "RoomCreated") {
+    const localId = event.localRoomId ?? roomIdByContractId.get(event.roomId) ?? `contract:${event.roomId}`;
+    const existing = rooms.get(localId);
+    const room: RoomRecord =
+      existing ??
+      ({
+        id: localId,
+        contractRoomId: event.roomId,
+        market: event.market ?? "USDC/EURC",
+        entryFee: event.entryFee ?? "5 USDC",
+        minPlayers: event.minPlayers ?? 2,
+        maxPlayers: event.maxPlayers ?? 20,
+        rounds: event.rounds ?? 10,
+        roundDuration: event.roundDuration ?? 60,
+        startTime: event.startTime ?? nowSeconds() + 60,
+        status: ROOM_STATUS.Lobby,
+        joinIntents: [],
+        activePlayers: [],
+        spectators: [],
+        commitments: new Map(),
+        reveals: new Map(),
+        leaderboard: []
+      } satisfies RoomRecord);
+    room.contractRoomId = event.roomId;
+    rooms.set(localId, room);
+    roomIdByContractId.set(event.roomId, localId);
+    return true;
+  }
+
+  const room = getRoom(event.roomId);
+  if (!room) return false;
+  if (event.type === "RoomJoined") {
+    addUnique(room.activePlayers, event.player);
+    addUnique(room.joinIntents, event.player);
+    return true;
+  }
+  if (event.type === "RoomLeft" || event.type === "Refunded") {
+    removeValue(room.activePlayers, event.player);
+    return true;
+  }
+  if (event.type === "RoomLocked") {
+    room.status = ROOM_STATUS.Locked;
+    return true;
+  }
+  if (event.type === "ResultsSubmitted") {
+    room.status = ROOM_STATUS.Settling;
+    room.resultsRoot = event.resultsRoot;
+    room.challengeOpen = false;
+    return true;
+  }
+  if (event.type === "ResultsChallenged") {
+    room.status = ROOM_STATUS.Settling;
+    room.challengeOpen = true;
+    return true;
+  }
+  if (event.type === "ChallengeResolved") {
+    room.challengeOpen = false;
+    return true;
+  }
+  if (event.type === "RoomSettled") {
+    room.status = ROOM_STATUS.Settled;
+    room.resultsRoot = event.resultsRoot;
+    room.challengeOpen = false;
+    if (event.leaderboard) room.leaderboard = event.leaderboard;
+    return true;
+  }
+  if (event.type === "RoomCancelled" || event.type === "SettlementRescued") {
+    room.status = ROOM_STATUS.Cancelled;
+    room.challengeOpen = false;
+    return true;
+  }
+  return false;
+}
+
+function indexedEventId(event: IndexedEvent): string {
+  if (event.txHash && event.logIndex !== undefined) return `${event.txHash}:${event.logIndex}`;
+  return `${event.type}:${event.roomId}:${JSON.stringify(event)}`;
+}
+
+function saveState(): void {
+  const state = {
+    rooms: [...rooms.values()].map((room) => ({
+      ...room,
+      commitments: [...room.commitments.entries()],
+      reveals: [...room.reveals.entries()]
+    })),
+    roomIdByContractId: [...roomIdByContractId.entries()],
+    processedEvents: [...processedEvents.values()],
+    relayIdempotency: [...relayIdempotency.entries()]
+  };
+  mkdirSync(dirname(statePath), { recursive: true });
+  writeFileSync(statePath, JSON.stringify(state, null, 2));
+}
+
+function loadState(): void {
+  if (!existsSync(statePath)) return;
+  const parsed = JSON.parse(readFileSync(statePath, "utf8")) as {
+    rooms?: Array<Omit<RoomRecord, "commitments" | "reveals"> & {
+      commitments?: Array<[string, CommitmentRecord]>;
+      reveals?: Array<[string, RevealRecord]>;
+    }>;
+    roomIdByContractId?: Array<[string, string]>;
+    processedEvents?: string[];
+    relayIdempotency?: Array<[string, string]>;
+  };
+  for (const room of parsed.rooms ?? []) {
+    rooms.set(room.id, {
+      ...room,
+      commitments: new Map(room.commitments ?? []),
+      reveals: new Map(room.reveals ?? [])
+    });
+  }
+  for (const [contractRoomId, localRoomId] of parsed.roomIdByContractId ?? []) roomIdByContractId.set(contractRoomId, localRoomId);
+  for (const eventId of parsed.processedEvents ?? []) processedEvents.add(eventId);
+  for (const [key, value] of parsed.relayIdempotency ?? []) relayIdempotency.set(key, value);
+}
+
+function readIdempotencyKey(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 && value.length <= 128 ? value : null;
+}
+
+function removeValue(values: Address[], value: Address): void {
+  const index = values.indexOf(value);
+  if (index >= 0) values.splice(index, 1);
 }
 
 function nowSeconds(): number {
