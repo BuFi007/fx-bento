@@ -16,11 +16,13 @@ contract DeployFXBento is Script {
     function run() external {
         address owner = vm.envOr("OWNER", msg.sender);
         address treasury = vm.envOr("TREASURY", owner);
-        address poolManager = vm.envOr("POOL_MANAGER", address(0x1111));
+        address poolManager = vm.envAddress("POOL_MANAGER");
+        bytes32 hookSalt = vm.envBytes32("HOOK_SALT");
         vm.startBroadcast();
         PoolRegistry registry = new PoolRegistry(owner);
         ProtocolFeeVault vault = new ProtocolFeeVault(owner, treasury);
-        new FXBentoHook(owner, IPoolManager(poolManager), registry, vault);
+        FXBentoHook hook = new FXBentoHook{salt: hookSalt}(owner, IPoolManager(poolManager), registry, vault);
+        require(hook.hookAddressHasPermissions(address(hook)), "INVALID_HOOK_ADDRESS");
         FXBentoRoomFactory factory = new FXBentoRoomFactory(owner, registry);
         FXBentoRoomEscrow escrow = new FXBentoRoomEscrow(owner, factory, vault);
         factory.setEscrow(address(escrow));

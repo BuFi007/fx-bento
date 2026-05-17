@@ -48,6 +48,7 @@ contract FXBentoHook is IHooks, Pausable {
         Pausable(owner_)
     {
         require(address(poolManager_) != address(0), "ZERO_POOL_MANAGER");
+        Hooks.validateHookPermissions(IHooks(address(this)), getHookPermissions());
         poolManager = poolManager_;
         registry = registry_;
         feeVault = feeVault_;

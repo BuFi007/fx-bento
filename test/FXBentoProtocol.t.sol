@@ -70,7 +70,7 @@ contract FXBentoProtocolTest is Test {
         poolManager = new MockV4PoolManager();
         registry = new PoolRegistry(owner);
         vault = new ProtocolFeeVault(owner, treasury);
-        hook = new FXBentoHook(owner, IPoolManager(address(poolManager)), registry, vault);
+        hook = _deployHookAtPermissionedAddress();
         key = PoolKey(address(usdc), address(0xE00C), 500, 10, address(hook));
         v4Key = V4PoolKey({
             currency0: Currency.wrap(address(usdc)),
@@ -324,6 +324,11 @@ contract FXBentoProtocolTest is Test {
         hook.afterSwap(address(this), v4Key, params, BalanceDelta.wrap(0), "");
     }
 
+    function testHookConstructorRejectsWrongPermissionAddress() public {
+        vm.expectRevert();
+        new FXBentoHook(owner, IPoolManager(address(poolManager)), registry, vault);
+    }
+
     function testLeaveRejoinCanRefundAndDoesNotConsumeSeat() public {
         uint256 roomId = _createRoom(2, 2);
         _join(alice, roomId);
@@ -431,5 +436,16 @@ contract FXBentoProtocolTest is Test {
     function _approve(address player) internal {
         vm.prank(player);
         usdc.approve(address(escrow), type(uint256).max);
+    }
+
+    function _deployHookAtPermissionedAddress() internal returns (FXBentoHook deployedHook) {
+        address hookAddress =
+            address(uint160(Hooks.AFTER_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG));
+        deployCodeTo(
+            "FXBentoHook.sol:FXBentoHook",
+            abi.encode(owner, IPoolManager(address(poolManager)), registry, vault),
+            hookAddress
+        );
+        deployedHook = FXBentoHook(hookAddress);
     }
 }

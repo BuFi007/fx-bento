@@ -56,3 +56,15 @@ The script prints:
 - salt
 
 The printed address must satisfy `hookAddressHasPermissions(address) == true` before deployment.
+
+`FXBentoHook` enforces `Hooks.validateHookPermissions` in its constructor. A deployment to any address whose low bits do not exactly match the enabled permissions will revert.
+
+The aggregate deployment script expects the mined salt:
+
+```bash
+OWNER=0x... \
+TREASURY=0x... \
+POOL_MANAGER=0x... \
+HOOK_SALT=0x... \
+forge script script/DeployFXBento.s.sol --broadcast --rpc-url "$RPC_URL"
+```
