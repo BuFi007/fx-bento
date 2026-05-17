@@ -5,7 +5,9 @@
   "type": "module",
   "main": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./deployments/arc-testnet-5042002.json": "./deployments/arc-testnet-5042002.json",
+    "./deployments/avalanche-fuji-43113.json": "./deployments/avalanche-fuji-43113.json"
   },
   "dependencies": {
     "@bufinance/fx-bento-shared-types": "workspace:*",
