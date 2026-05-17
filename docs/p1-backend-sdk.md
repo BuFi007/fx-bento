@@ -78,5 +78,24 @@ curl -X POST http://localhost:8787/arcade/indexer/poll
 
 - Add production persistence around the poller state instead of local JSON.
 - Add deployment-specific event address configuration.
-- Add frontend components that consume `roomFlowActions(...)` directly.
+- Wire deployed contract addresses into `FX_BENTO_FACTORY_ADDRESS`, `FX_BENTO_ESCROW_ADDRESS`, and `FX_BENTO_SETTLEMENT_ADDRESS` after deployment.
+- Expand frontend transaction handlers from rendered CTA state.
 - Add integration tests for backend routes once the persistence layer is chosen.
+
+## Frontend State Surface
+
+`frontend/src/components/FXBentoArcade.tsx` now consumes backend rooms when available and falls back to sample validation rooms when the backend is offline.
+
+The lobby and room surfaces render from contract-aligned fields:
+
+- `status` / `statusLabel`
+- `activePlayers`
+- `commitments`
+- `reveals`
+- `leaderboard`
+- `resultsRoot`
+- `challengeOpen`
+- `settlementRescueDeadline`
+- `actions` from `roomFlowActions(...)`
+
+The UI does not decide money state. It only renders room actions that should be backed by contract reads or indexed backend state.

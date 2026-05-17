@@ -63,4 +63,5 @@ Current hardening references:
 - `docs/p1-backend-sdk.md`: contract-aligned backend coordinator and SDK transaction helper notes.
 - `docs/threat-model.md`: current trust boundaries and limitations.
 - `TODOS.md`: P0/P1 implementation queue.
+- `.env.example`: local backend, Liveblocks, and deployed contract address slots for the viem poller.
 - `/Users/criptopoeta/.gstack/projects/BuFi007-fx-bento/main-autoplan-test-plan-20260516-205300.md`: expanded validation and invariant test plan.
