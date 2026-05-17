@@ -1,4 +1,4 @@
-import { z } from "zod";
+import z from "zod";
 
 const segment = z.string().min(1).max(96).regex(/^[A-Za-z0-9._/-]+$/);
 

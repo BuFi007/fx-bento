@@ -9,7 +9,7 @@ import {
   type WalletSession,
 } from "@bufinance/fx-bento-shared-types";
 import { verifyMessage } from "viem";
-import { z } from "zod";
+import z from "zod";
 
 export const WalletAuthHeadersSchema = z.object({
   wallet: AddressSchema.optional(),

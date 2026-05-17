@@ -5,7 +5,7 @@ import {
   type FxBentoPersistenceStore,
 } from "@bufinance/fx-bento-db";
 import { AddressSchema, HexSchema, nowIso } from "@bufinance/fx-bento-shared-types";
-import { z } from "zod";
+import z from "zod";
 
 const DecimalStringSchema = z.string().regex(/^\d+$/);
 

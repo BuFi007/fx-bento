@@ -1,5 +1,5 @@
 import { AddressSchema } from "@bufinance/fx-bento-shared-types";
-import { z } from "zod";
+import z from "zod";
 
 export const PaymentRequirementsSchema = z.object({
   scheme: z.literal("exact"),

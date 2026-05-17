@@ -37,7 +37,7 @@ import {
 import { AddressSchema, HexSchema, nowIso } from "@bufinance/fx-bento-shared-types";
 import { createPublicClient, createWalletClient, defineChain, http, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { z } from "zod";
+import z from "zod";
 
 export const FxBentoJobKindSchema = z.enum([
   "lock_room",

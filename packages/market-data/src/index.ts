@@ -1,5 +1,5 @@
 import { MarketIdSchema, type MarketId } from "@bufinance/fx-bento-shared-types";
-import { z } from "zod";
+import z from "zod";
 
 export const MarketSchema = z.object({
   id: MarketIdSchema,

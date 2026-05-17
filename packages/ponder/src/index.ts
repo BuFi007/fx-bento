@@ -1,7 +1,7 @@
 import { ROOM_STATUS_BY_ID, type ContractName } from "@bufinance/fx-bento-contracts";
 import { AddressSchema, HexSchema, MarketIdSchema, nowIso } from "@bufinance/fx-bento-shared-types";
 import postgres from "postgres";
-import { z } from "zod";
+import z from "zod";
 
 export const IndexedEventKindSchema = z.enum([
   "fxBento.roomCreated",
@@ -169,6 +169,9 @@ export interface PonderReadSource {
         latestBlockNumber?: string | null;
         latestTimestamp?: string | null;
         lagSeconds?: number | null;
+        source?: "checkpoint" | "event";
+        latestEventBlockNumber?: string | null;
+        latestEventTimestamp?: string | null;
       }
     | {
         status: "sql";
@@ -177,6 +180,9 @@ export interface PonderReadSource {
         latestBlockNumber?: string | null;
         latestTimestamp?: string | null;
         lagSeconds?: number | null;
+        source?: "checkpoint" | "event";
+        latestEventBlockNumber?: string | null;
+        latestEventTimestamp?: string | null;
       }
   >;
 }
@@ -396,17 +402,39 @@ export function createPonderSqlReadSource(args: { databaseUrl?: string; sql?: Po
 
     async health() {
       try {
-        const rows = sqlRows(await sql`select block_number, timestamp from fx_bento_event order by block_number desc limit 1`);
-        const latest = rows[0];
-        const latestTimestamp = latest ? timestampFromSeconds(latest.timestamp) : null;
+        const [checkpoints, events] = await Promise.all([
+          query`select latest_checkpoint from _ponder_checkpoint order by chain_id asc limit 1`,
+          query`select block_number, timestamp from fx_bento_event order by block_number desc limit 1`,
+        ]);
+        const checkpoint = decodePonderCheckpoint(stringOrNull(checkpoints[0]?.latest_checkpoint));
+        const latestEvent = events[0];
+        const latestEventTimestamp = latestEvent ? timestampFromSeconds(latestEvent.timestamp) : null;
+        if (checkpoint) {
+          const latestTimestamp = timestampFromSeconds(checkpoint.blockTimestamp);
+          return {
+            status: "sql",
+            ok: true,
+            source: "checkpoint",
+            latestBlockNumber: checkpoint.blockNumber,
+            latestTimestamp,
+            lagSeconds: latestTimestamp
+              ? Math.max(0, Math.floor((Date.now() - Date.parse(latestTimestamp)) / 1000))
+              : null,
+            latestEventBlockNumber: latestEvent ? stringOrNull(latestEvent.block_number) : null,
+            latestEventTimestamp,
+          };
+        }
         return {
           status: "sql",
-          ok: rows.length > 0,
-          latestBlockNumber: latest ? stringOrNull(latest.block_number) : null,
-          latestTimestamp,
-          lagSeconds: latestTimestamp
-            ? Math.max(0, Math.floor((Date.now() - Date.parse(latestTimestamp)) / 1000))
+          ok: events.length > 0,
+          source: "event",
+          latestBlockNumber: latestEvent ? stringOrNull(latestEvent.block_number) : null,
+          latestTimestamp: latestEventTimestamp,
+          lagSeconds: latestEventTimestamp
+            ? Math.max(0, Math.floor((Date.now() - Date.parse(latestEventTimestamp)) / 1000))
             : null,
+          latestEventBlockNumber: latestEvent ? stringOrNull(latestEvent.block_number) : null,
+          latestEventTimestamp,
         };
       } catch (error) {
         return {
@@ -822,6 +850,14 @@ function roomStatusFromPayload(value: unknown): FxBentoRoomReadModel["status"] {
 function stringOrNull(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   return String(value);
+}
+
+function decodePonderCheckpoint(checkpoint: string | null): { blockTimestamp: string; blockNumber: string } | null {
+  if (!checkpoint || checkpoint.length < 42 || !/^\d+$/.test(checkpoint)) return null;
+  return {
+    blockTimestamp: BigInt(checkpoint.slice(0, 10)).toString(),
+    blockNumber: BigInt(checkpoint.slice(26, 42)).toString(),
+  };
 }
 
 function stringPayload(value: unknown): string {

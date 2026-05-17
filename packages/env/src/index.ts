@@ -1,4 +1,4 @@
-import { z } from "zod";
+import z from "zod";
 
 function emptyToUndefined(value: unknown) {
   return value === "" ? undefined : value;

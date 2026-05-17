@@ -16,6 +16,18 @@ const startBlock = resolveDeploymentStartBlock(process.env, chainId);
 const rpcUrl = resolveDeploymentRpcUrl(process.env, chainId) ?? "http://127.0.0.1:8545";
 const contractAddresses = chainContractAddressesFromEnv(process.env, chainId);
 
+const FX_BENTO_ADDRESS_ALIASES = {
+  FXBentoCommitmentManager: ["FX_BENTO_COMMITMENT_MANAGER_ADDRESS"],
+  FXBentoHook: ["FX_BENTO_HOOK_ADDRESS"],
+  FXBentoRoomEscrow: ["FX_BENTO_ROOM_ESCROW_ADDRESS", "FX_BENTO_ESCROW_ADDRESS"],
+  FXBentoRoomFactory: ["FX_BENTO_ROOM_FACTORY_ADDRESS", "FX_BENTO_FACTORY_ADDRESS"],
+  FXBentoRoundManager: ["FX_BENTO_ROUND_MANAGER_ADDRESS"],
+  FXBentoScoring: ["FX_BENTO_SCORING_ADDRESS"],
+  FXBentoSettlementManager: ["FX_BENTO_SETTLEMENT_MANAGER_ADDRESS", "FX_BENTO_SETTLEMENT_ADDRESS"],
+  PoolRegistry: ["FX_BENTO_POOL_REGISTRY_ADDRESS"],
+  ProtocolFeeVault: ["FX_BENTO_PROTOCOL_FEE_VAULT_ADDRESS"],
+} as const satisfies Record<ContractName, readonly string[]>;
+
 export default createConfig({
   database: databaseUrl
     ? { kind: "postgres", connectionString: databaseUrl }
@@ -72,15 +84,3 @@ function firstEnv(...keys: string[]): string | undefined {
   }
   return undefined;
 }
-
-const FX_BENTO_ADDRESS_ALIASES = {
-  FXBentoCommitmentManager: ["FX_BENTO_COMMITMENT_MANAGER_ADDRESS"],
-  FXBentoHook: ["FX_BENTO_HOOK_ADDRESS"],
-  FXBentoRoomEscrow: ["FX_BENTO_ROOM_ESCROW_ADDRESS", "FX_BENTO_ESCROW_ADDRESS"],
-  FXBentoRoomFactory: ["FX_BENTO_ROOM_FACTORY_ADDRESS", "FX_BENTO_FACTORY_ADDRESS"],
-  FXBentoRoundManager: ["FX_BENTO_ROUND_MANAGER_ADDRESS"],
-  FXBentoScoring: ["FX_BENTO_SCORING_ADDRESS"],
-  FXBentoSettlementManager: ["FX_BENTO_SETTLEMENT_MANAGER_ADDRESS", "FX_BENTO_SETTLEMENT_ADDRESS"],
-  PoolRegistry: ["FX_BENTO_POOL_REGISTRY_ADDRESS"],
-  ProtocolFeeVault: ["FX_BENTO_PROTOCOL_FEE_VAULT_ADDRESS"],
-} as const satisfies Record<ContractName, readonly string[]>;
