@@ -21,8 +21,12 @@ export const IndexedEventKindSchema = z.enum([
   "fxBento.settlementRecorded",
   "fxBento.resultsSubmitted",
   "fxBento.resultsChallenged",
+  "fxBento.challengeResolved",
   "fxBento.resultsFinalized",
+  "fxBento.settlementRescueDelayUpdated",
+  "fxBento.settlementRescued",
   "fxBento.roomSettled",
+  "fxBento.settlementManagerUpdated",
   "fxBento.prizeClaimed",
   "fxBento.refundClaimed",
   "fxBento.protocolRakeClaimed",
@@ -30,8 +34,10 @@ export const IndexedEventKindSchema = z.enum([
   "fxBento.marketSnapshot",
   "fxBento.preSwapContext",
   "fxBento.arcadeFeeVaultUpdated",
+  "fxBento.hookPoolAllowedUpdated",
   "fxBento.poolAllowed",
   "fxBento.treasuryUpdated",
+  "fxBento.feeNotifierUpdated",
   "fxBento.feeReceived",
   "fxBento.feeSwept",
   "perps.positionOpened",
@@ -183,6 +189,7 @@ const EVENT_KIND_BY_NAME: Record<string, IndexedEventKind> = {
   RoomCancelled: "fxBento.roomCancelled",
   RoomLocked: "fxBento.roomLocked",
   RoomSettled: "fxBento.roomSettled",
+  SettlementManagerUpdated: "fxBento.settlementManagerUpdated",
   Refunded: "fxBento.refundClaimed",
   PrizeClaimed: "fxBento.prizeClaimed",
   ProtocolFeeClaimed: "fxBento.protocolRakeClaimed",
@@ -193,13 +200,18 @@ const EVENT_KIND_BY_NAME: Record<string, IndexedEventKind> = {
   SelectionRevealed: "fxBento.selectionRevealed",
   ResultsSubmitted: "fxBento.resultsSubmitted",
   ResultsChallenged: "fxBento.resultsChallenged",
+  ChallengeResolved: "fxBento.challengeResolved",
   ResultsFinalized: "fxBento.resultsFinalized",
+  SettlementRescueDelayUpdated: "fxBento.settlementRescueDelayUpdated",
+  SettlementRescued: "fxBento.settlementRescued",
   PoolInitialized: "fxBento.poolInitialized",
   FXBentoMarketSnapshot: "fxBento.marketSnapshot",
   PreSwapContext: "fxBento.preSwapContext",
   ArcadeFeeVaultUpdated: "fxBento.arcadeFeeVaultUpdated",
+  HookPoolAllowedUpdated: "fxBento.hookPoolAllowedUpdated",
   PoolAllowed: "fxBento.poolAllowed",
   TreasuryUpdated: "fxBento.treasuryUpdated",
+  FeeNotifierUpdated: "fxBento.feeNotifierUpdated",
   FeeReceived: "fxBento.feeReceived",
   FeeSwept: "fxBento.feeSwept",
 };
@@ -558,9 +570,15 @@ function applyRoomEvent(event: IndexedEvent): void {
     case "fxBento.resultsChallenged":
       room.results.challenged = true;
       break;
+    case "fxBento.challengeResolved":
+      room.results.challenged = false;
+      break;
     case "fxBento.resultsFinalized":
       room.results.finalized = true;
       room.results.finalizedAt = event.timestamp;
+      break;
+    case "fxBento.settlementRescued":
+      room.status = "cancelled";
       break;
   }
 }

@@ -98,13 +98,75 @@ describe("Ponder mapping helpers", () => {
       logIndex: 1,
       blockNumber: 10n,
       blockTimestamp: 100n,
-      args: { poolId, sqrtPriceX96: 123n, tick: -50, timestamp: 100n, volatility: 8n },
+      args: { poolId, snapshotId: 1n, sqrtPriceX96: 123n, tick: -50, timestamp: 100n, volatility: 8n },
     });
 
     expect(inspectFxBentoMarketSnapshots({ poolId })).toEqual([
       expect.objectContaining({ poolId, sqrtPriceX96: "123", tick: "-50", volatility: "8" }),
     ]);
     expect(indexerHealth()).toMatchObject({ eventCount: 1, marketSnapshotCount: 1 });
+  });
+
+  test("records current settlement and rescue events", () => {
+    recordFxBentoContractEvent({
+      contractName: "FXBentoRoomFactory",
+      eventName: "RoomCreated",
+      txHash,
+      logIndex: 1,
+      blockNumber: 10n,
+      blockTimestamp: 100n,
+      args: {
+        roomId: 1n,
+        poolId,
+        entryToken: "0x0000000000000000000000000000000000000001",
+        entryFee: 5_000_000n,
+      },
+    });
+    recordFxBentoContractEvent({
+      contractName: "FXBentoSettlementManager",
+      eventName: "ResultsChallenged",
+      txHash,
+      logIndex: 2,
+      blockNumber: 11n,
+      blockTimestamp: 110n,
+      args: { roomId: 1n, proof: "0x1234" },
+    });
+    recordFxBentoContractEvent({
+      contractName: "FXBentoSettlementManager",
+      eventName: "ChallengeResolved",
+      txHash,
+      logIndex: 3,
+      blockNumber: 12n,
+      blockTimestamp: 120n,
+      args: { roomId: 1n, accepted: false },
+    });
+    recordFxBentoContractEvent({
+      contractName: "FXBentoRoomEscrow",
+      eventName: "RoomSettled",
+      txHash,
+      logIndex: 4,
+      blockNumber: 13n,
+      blockTimestamp: 130n,
+      args: { roomId: 1n, resultsRoot: root, payoutSchemaHash: root, payoutTotal: 4_500_000n, protocolFee: 500_000n },
+    });
+
+    expect(inspectFxBentoIndexedRoom({ roomId: "1" })).toMatchObject({
+      status: "settled",
+      protocolFee: "500000",
+      results: { root, challenged: false },
+    });
+
+    recordFxBentoContractEvent({
+      contractName: "FXBentoSettlementManager",
+      eventName: "SettlementRescued",
+      txHash,
+      logIndex: 5,
+      blockNumber: 14n,
+      blockTimestamp: 140n,
+      args: { roomId: 1n },
+    });
+
+    expect(inspectFxBentoIndexedRoom({ roomId: "1" })?.status).toBe("cancelled");
   });
 
   test("reads normalized room detail from Ponder GraphQL", async () => {

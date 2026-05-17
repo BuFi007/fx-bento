@@ -51,6 +51,7 @@ export const FX_BENTO_ROOM_ESCROW_EVENTS = [
   "RoomCancelled",
   "RoomLocked",
   "RoomSettled",
+  "SettlementManagerUpdated",
   "Refunded",
   "PrizeClaimed",
   "ProtocolFeeClaimed",
@@ -65,7 +66,10 @@ export const FX_BENTO_ROUND_EVENTS = [
 export const FX_BENTO_SETTLEMENT_EVENTS = [
   "ResultsSubmitted",
   "ResultsChallenged",
+  "ChallengeResolved",
   "ResultsFinalized",
+  "SettlementRescueDelayUpdated",
+  "SettlementRescued",
 ] as const;
 
 export const FX_BENTO_COMMITMENT_EVENTS = [
@@ -78,12 +82,14 @@ export const FX_BENTO_HOOK_EVENTS = [
   "FXBentoMarketSnapshot",
   "PreSwapContext",
   "ArcadeFeeVaultUpdated",
+  "HookPoolAllowedUpdated",
 ] as const;
 
 export const FX_BENTO_POOL_REGISTRY_EVENTS = ["PoolAllowed"] as const;
 
 export const FX_BENTO_PROTOCOL_FEE_VAULT_EVENTS = [
   "TreasuryUpdated",
+  "FeeNotifierUpdated",
   "FeeReceived",
   "FeeSwept",
 ] as const;
@@ -121,7 +127,10 @@ export const FX_BENTO_ROOM_FACTORY_ABI = parseAbi([
   "event LimitsUpdated(uint16 maxRakeBps, uint16 protocolMaxPlayers)",
   "event EscrowUpdated(address indexed escrow)",
   "function createRoom(((address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks) poolKey,address entryToken,uint256 entryFee,uint16 minPlayers,uint16 maxPlayers,uint16 rounds,uint32 roundDuration,uint32 lockBuffer,uint64 startTime,uint16 rakeBps,uint16[] payoutBps,bytes32 gridConfigHash,bool isPrivate,bytes32 inviteCodeHash) config) returns (uint256 roomId)",
-  "function setRoomStatus(uint256 roomId, uint8 status)",
+  "function transitionRoomStatus(uint256 roomId, uint8 expectedStatus, uint8 nextStatus)",
+  "function setEscrow(address escrow)",
+  "function setEntryToken(address token, bool allowed)",
+  "function setLimits(uint16 maxRakeBps, uint16 protocolMaxPlayers)",
   "function getRoom(uint256 roomId) view returns ((bytes32 poolId,address entryToken,uint256 entryFee,uint16 minPlayers,uint16 maxPlayers,uint16 rounds,uint32 roundDuration,uint32 lockBuffer,uint64 startTime,uint16 rakeBps,bytes32 payoutHash,bytes32 gridConfigHash,bool isPrivate,bytes32 inviteCodeHash,uint8 status))",
   "function getPayoutBps(uint256 roomId) view returns (uint16[])",
   "function allowedEntryToken(address token) view returns (bool)",
@@ -133,7 +142,8 @@ export const FX_BENTO_ROOM_ESCROW_ABI = parseAbi([
   "event RoomLeft(uint256 indexed roomId, address indexed player)",
   "event RoomCancelled(uint256 indexed roomId)",
   "event RoomLocked(uint256 indexed roomId, uint256 escrowed)",
-  "event RoomSettled(uint256 indexed roomId, bytes32 resultsRoot, uint256 protocolFee)",
+  "event RoomSettled(uint256 indexed roomId, bytes32 indexed resultsRoot, bytes32 indexed payoutSchemaHash, uint256 payoutTotal, uint256 protocolFee)",
+  "event SettlementManagerUpdated(address indexed settlementManager)",
   "event Refunded(uint256 indexed roomId, address indexed player, uint256 amount)",
   "event PrizeClaimed(uint256 indexed roomId, address indexed player, uint256 amount)",
   "event ProtocolFeeClaimed(uint256 indexed roomId, uint256 amount)",
@@ -152,6 +162,9 @@ export const FX_BENTO_ROOM_ESCROW_ABI = parseAbi([
   "function resultsRoot(uint256 roomId) view returns (bytes32)",
   "function escrowed(uint256 roomId) view returns (uint256)",
   "function protocolFee(uint256 roomId) view returns (uint256)",
+  "function payoutTotal(uint256 roomId) view returns (uint256)",
+  "function payoutSchemaHash(uint256 roomId) view returns (bytes32)",
+  "function totalPrizeClaimed(uint256 roomId) view returns (uint256)",
 ]);
 
 export const FX_BENTO_ROUND_MANAGER_ABI = parseAbi([
@@ -181,26 +194,34 @@ export const FX_BENTO_SETTLEMENT_MANAGER_ABI = parseAbi([
   "event ResultsChallenged(uint256 indexed roomId, bytes proof)",
   "event ChallengeResolved(uint256 indexed roomId, bool accepted)",
   "event ResultsFinalized(uint256 indexed roomId, bytes32 indexed resultsRoot)",
+  "event SettlementRescueDelayUpdated(uint64 settlementRescueDelay)",
+  "event SettlementRescued(uint256 indexed roomId)",
   "function setChallengeWindow(uint64 challengeWindow)",
   "function setRoundManager(address roundManager)",
+  "function setSettlementRescueDelay(uint64 settlementRescueDelay)",
   "function submitResults(uint256 roomId, (uint256 roomId,bytes32 winnerRoot,bytes32 rosterHash,bytes32 leaderboardHash,bytes32 scoreRoot,bytes32 settlementPriceRoot,uint256 payoutTotal,uint256 protocolFee,bytes32 metadataHash) payout, string metadataURI, bytes attestation)",
   "function challengeResults(uint256 roomId, bytes proof)",
-  "function acceptChallenge(uint256 roomId, (uint256 roomId,bytes32 winnerRoot,bytes32 rosterHash,bytes32 leaderboardHash,bytes32 scoreRoot,bytes32 settlementPriceRoot,uint256 payoutTotal,uint256 protocolFee,bytes32 metadataHash) replacement, string metadataURI)",
-  "function rejectChallenge(uint256 roomId)",
+  "function resolveChallenge(uint256 roomId, bool acceptChallenge, (uint256 roomId,bytes32 winnerRoot,bytes32 rosterHash,bytes32 leaderboardHash,bytes32 scoreRoot,bytes32 settlementPriceRoot,uint256 payoutTotal,uint256 protocolFee,bytes32 metadataHash) replacement, string metadataURI)",
   "function finalizeResults(uint256 roomId)",
+  "function rescueFailedSettlement(uint256 roomId)",
   "function challengeWindow() view returns (uint64)",
+  "function settlementRescueDelay() view returns (uint64)",
+  "function settlementRescueDeadline(uint256 roomId) view returns (uint64)",
   "function pendingResults(uint256 roomId) view returns ((uint256 roomId,bytes32 winnerRoot,bytes32 rosterHash,bytes32 leaderboardHash,bytes32 scoreRoot,bytes32 settlementPriceRoot,uint256 payoutTotal,uint256 protocolFee,bytes32 metadataHash) payout, bytes32 payoutSchemaHash, string metadataURI, bytes attestation, uint64 submittedAt, uint64 challengedAt, uint8 challengeStatus, bool challenged, bool finalized, bool resolved)",
 ]);
 
 export const FX_BENTO_HOOK_ABI = parseAbi([
   "event PoolInitialized(bytes32 indexed poolId, address indexed currency0, address indexed currency1)",
-  "event FXBentoMarketSnapshot(bytes32 indexed poolId, uint160 sqrtPriceX96, int24 tick, uint64 timestamp, uint256 volatility)",
+  "event FXBentoMarketSnapshot(bytes32 indexed poolId, uint256 indexed snapshotId, uint160 sqrtPriceX96, int24 tick, uint64 timestamp, uint256 volatility)",
   "event PreSwapContext(bytes32 indexed poolId, address indexed sender)",
   "event ArcadeFeeVaultUpdated(address indexed feeVault)",
+  "event HookPoolAllowedUpdated(bytes32 indexed poolId, bool allowed)",
   "function setFeeVault(address feeVault)",
+  "function setHookPoolAllowed(bytes32 poolId, bool allowed)",
   "function validatePool((address currency0,address currency1,uint24 fee,int24 tickSpacing,address hooks) key) view returns (bool)",
-  "function latestSnapshot(bytes32 poolId) view returns ((uint160 sqrtPriceX96,int24 tick,uint64 timestamp,uint256 volatility))",
-  "function getPoolSnapshot(bytes32 poolId) view returns ((uint160 sqrtPriceX96,int24 tick,uint64 timestamp,uint256 volatility))",
+  "function latestSnapshot(bytes32 poolId) view returns ((uint256 snapshotId,uint160 sqrtPriceX96,int24 tick,uint64 timestamp,uint256 volatility))",
+  "function getPoolSnapshot(bytes32 poolId) view returns ((uint256 snapshotId,uint160 sqrtPriceX96,int24 tick,uint64 timestamp,uint256 volatility))",
+  "function snapshotById(bytes32 poolId, uint256 snapshotId) view returns ((uint256 snapshotId,uint160 sqrtPriceX96,int24 tick,uint64 timestamp,uint256 volatility))",
   "function realizedVolatility(bytes32 poolId, uint256 window) view returns (uint256)",
 ]);
 
@@ -214,12 +235,15 @@ export const POOL_REGISTRY_ABI = parseAbi([
 
 export const PROTOCOL_FEE_VAULT_ABI = parseAbi([
   "event TreasuryUpdated(address indexed treasury)",
+  "event FeeNotifierUpdated(address indexed feeNotifier)",
   "event FeeReceived(address indexed token, uint256 indexed roomId, uint256 amount)",
   "event FeeSwept(address indexed token, address indexed treasury, uint256 amount)",
   "function setTreasury(address treasury)",
+  "function setFeeNotifier(address feeNotifier)",
   "function notifyFee(address token, uint256 roomId, uint256 amount)",
   "function sweep(address token)",
   "function treasury() view returns (address)",
+  "function feeNotifier() view returns (address)",
 ]);
 
 export const FX_BENTO_SCORING_ABI = parseAbi([
