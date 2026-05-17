@@ -4,12 +4,10 @@ These tasks are deferred from `/autoplan` and should be handled before public pa
 
 ## P0 Contract Safety
 
-- Add broadcast-safe CREATE2 deployment script for the canonical `FXBentoHook.sol` permission bits.
 - Repair escrow active roster, leave/rejoin, refund, and room-full accounting.
 - Make `FXBentoSettlementManager` the authoritative settlement path for escrow roots.
 - Replace arbitrary room status writes with a room lifecycle transition table.
 - Add challenge resolution, timeout, adjudication, or refund rescue.
-- Bind rounds to room config, valid round indexes, grid hash, and fresh market snapshots.
 - Require paid active membership for commit/reveal and prize eligibility.
 - Define payout root schema with total allocation, fee total, roster, rankings, score root, and settlement price root.
 - Add invariant tests for `claimed prizes + claimed fees + refundable/current escrow accounting <= token balance`.

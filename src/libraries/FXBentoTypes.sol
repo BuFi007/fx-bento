@@ -56,12 +56,14 @@ struct TileSelection {
 struct Round {
     uint256 roomId;
     uint16 roundIndex;
+    PoolId poolId;
     uint64 startTime;
     uint64 endTime;
     uint64 lockTime;
     int256 anchorPrice;
     int256 settlementPrice;
-    uint256 marketSnapshotId;
+    uint256 anchorSnapshotId;
+    uint256 settlementSnapshotId;
     bytes32 gridConfigHash;
     uint8 status;
 }

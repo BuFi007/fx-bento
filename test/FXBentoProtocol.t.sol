@@ -12,7 +12,7 @@ import {FXBentoCommitmentManager} from "../src/FXBentoCommitmentManager.sol";
 import {FXBentoSettlementManager} from "../src/FXBentoSettlementManager.sol";
 import {FXBentoScoring} from "../src/FXBentoScoring.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
-import {PoolKey, RoomConfig, TileSelection, PoolIdLibrary} from "../src/libraries/FXBentoTypes.sol";
+import {PoolId, PoolKey, RoomConfig, Round, TileSelection, PoolIdLibrary} from "../src/libraries/FXBentoTypes.sol";
 import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
 import {Currency} from "v4-core/types/Currency.sol";
 import {IHooks} from "v4-core/interfaces/IHooks.sol";
@@ -84,9 +84,10 @@ contract FXBentoProtocolTest is Test {
         escrow = new FXBentoRoomEscrow(owner, factory, vault);
         factory.setEscrow(address(escrow));
         factory.setEntryToken(address(usdc), true);
-        rounds = new FXBentoRoundManager(owner, factory);
+        rounds = new FXBentoRoundManager(owner, factory, hook);
         settlement = new FXBentoSettlementManager(owner, factory, escrow);
         escrow.setSettlementManager(address(settlement));
+        settlement.setRoundManager(rounds);
         settlement.setChallengeWindow(0);
         commitments = new FXBentoCommitmentManager(owner, rounds, escrow);
         scoring = new ScoringHarness();
@@ -148,6 +149,7 @@ contract FXBentoProtocolTest is Test {
 
     function testCommitAndRevealValidSelection() public {
         uint256 roomId = _startedRoom();
+        _recordHookSnapshot(100);
         rounds.startRound(
             roomId,
             0,
@@ -172,6 +174,7 @@ contract FXBentoProtocolTest is Test {
 
     function testRejectLateCommit() public {
         uint256 roomId = _startedRoom();
+        _recordHookSnapshot(100);
         rounds.startRound(
             roomId,
             0,
@@ -188,6 +191,7 @@ contract FXBentoProtocolTest is Test {
 
     function testRejectRevealMismatch() public {
         uint256 roomId = _startedRoom();
+        _recordHookSnapshot(100);
         rounds.startRound(
             roomId,
             0,
@@ -263,6 +267,7 @@ contract FXBentoProtocolTest is Test {
 
     function testSettleRoomRakePrizeDistributionAndInvariant() public {
         uint256 roomId = _startedRoom();
+        _settleAllRounds(roomId);
         uint256 prize = 9e6;
         bytes32 root = keccak256(abi.encode(roomId, alice, prize));
         settlement.submitResults(roomId, root, "ipfs://results", "");
@@ -279,6 +284,7 @@ contract FXBentoProtocolTest is Test {
 
     function testCannotSettleTwiceOrClaimPrizeTwice() public {
         uint256 roomId = _startedRoom();
+        _settleAllRounds(roomId);
         uint256 prize = 9e6;
         bytes32 root = keccak256(abi.encode(roomId, alice, prize));
         settlement.submitResults(roomId, root, "ipfs://results", "");
@@ -311,6 +317,10 @@ contract FXBentoProtocolTest is Test {
         hook.afterSwap(address(this), v4Key, params, BalanceDelta.wrap(0), "");
         vm.stopPrank();
         assertGt(hook.realizedVolatility(key.toId(), 2), 0);
+        assertEq(hook.latestSnapshotId(key.toId()), 3);
+        FXBentoHook.PoolSnapshot memory snapshot = hook.snapshotById(key.toId(), 2);
+        assertEq(snapshot.snapshotId, 2);
+        assertEq(snapshot.tick, 130);
     }
 
     function testHookPermissionBitmapMatchesEnabledCallbacks() public view {
@@ -364,6 +374,7 @@ contract FXBentoProtocolTest is Test {
 
     function testNonPlayerCannotCommitOrClaim() public {
         uint256 roomId = _startedRoom();
+        _recordHookSnapshot(100);
         rounds.startRound(
             roomId,
             0,
@@ -375,9 +386,13 @@ contract FXBentoProtocolTest is Test {
         vm.prank(carol);
         vm.expectRevert("NOT_PLAYER");
         commitments.commitSelection(roomId, 0, bytes32("commitment"));
+        vm.warp(block.timestamp + 60);
+        _recordHookSnapshot(130);
+        rounds.recordSettlement(roomId, 0);
 
         uint256 prize = 9e6;
         bytes32 root = keccak256(abi.encode(roomId, carol, prize));
+        _settleRemainingRounds(roomId, 1);
         settlement.submitResults(roomId, root, "ipfs://results", "");
         settlement.finalizeResults(roomId);
         vm.prank(carol);
@@ -389,6 +404,81 @@ contract FXBentoProtocolTest is Test {
         uint256 roomId = _startedRoom();
         vm.expectRevert("NOT_SETTLEMENT_MANAGER");
         escrow.settleRoom(roomId, bytes32("root"), "");
+    }
+
+    function testRoundStartRequiresFreshSnapshot() public {
+        uint256 roomId = _startedRoom();
+        vm.expectRevert("NO_SNAPSHOT");
+        rounds.startRound(
+            roomId,
+            0,
+            uint64(block.timestamp),
+            uint64(block.timestamp + 60),
+            uint64(block.timestamp + 50),
+            bytes32("grid")
+        );
+    }
+
+    function testRoundStartRejectsStaleSnapshot() public {
+        uint256 roomId = _startedRoom();
+        _recordHookSnapshot(100);
+        vm.warp(block.timestamp + 301);
+        vm.expectRevert("STALE_SNAPSHOT");
+        rounds.startRound(
+            roomId,
+            0,
+            uint64(block.timestamp),
+            uint64(block.timestamp + 60),
+            uint64(block.timestamp + 50),
+            bytes32("grid")
+        );
+    }
+
+    function testRoundStoresAnchorAndSettlementSnapshotIds() public {
+        uint256 roomId = _startedRoom();
+        uint64 start = uint64(block.timestamp);
+        _recordHookSnapshot(100);
+        rounds.startRound(roomId, 0, start, start + 60, start + 50, bytes32("grid"));
+
+        Round memory round = rounds.getRound(roomId, 0);
+        assertEq(round.anchorSnapshotId, 1);
+        assertEq(round.settlementSnapshotId, 0);
+        assertEq(PoolId.unwrap(round.poolId), PoolId.unwrap(key.toId()));
+
+        vm.warp(start + 60);
+        _recordHookSnapshot(130);
+        rounds.recordSettlement(roomId, 0);
+        round = rounds.getRound(roomId, 0);
+        assertEq(round.settlementSnapshotId, 2);
+        assertEq(round.status, 2);
+    }
+
+    function testRoundAnchorCannotBeOverwrittenAfterSnapshotBinding() public {
+        uint256 roomId = _startedRoom();
+        uint64 start = uint64(block.timestamp);
+        _recordHookSnapshot(100);
+        rounds.startRound(roomId, 0, start, start + 60, start + 50, bytes32("grid"));
+
+        vm.expectRevert("ANCHOR_LOCKED");
+        rounds.recordAnchor(roomId, 0, 123);
+    }
+
+    function testRoundSettlementRejectsStaleSnapshot() public {
+        uint256 roomId = _startedRoom();
+        uint64 start = uint64(block.timestamp);
+        _recordHookSnapshot(100);
+        rounds.startRound(roomId, 0, start, start + 60, start + 50, bytes32("grid"));
+
+        vm.warp(start + 301);
+        vm.expectRevert("STALE_SNAPSHOT");
+        rounds.recordSettlement(roomId, 0);
+    }
+
+    function testSettlementRejectsUnendedRounds() public {
+        uint256 roomId = _startedRoom();
+        bytes32 root = keccak256(abi.encode(roomId, alice, 9e6));
+        vm.expectRevert("ROUNDS_NOT_ENDED");
+        settlement.submitResults(roomId, root, "ipfs://results", "");
     }
 
     function testFuzzPayoutInvariant(uint8 players, uint16 rakeBps) public {
@@ -451,6 +541,27 @@ contract FXBentoProtocolTest is Test {
     function _join(address player, uint256 roomId) internal {
         vm.prank(player);
         escrow.joinRoom(roomId);
+    }
+
+    function _settleAllRounds(uint256 roomId) internal {
+        _settleRemainingRounds(roomId, 0);
+    }
+
+    function _settleRemainingRounds(uint256 roomId, uint16 startRoundIndex) internal {
+        uint64 firstStart = factory.getRoom(roomId).startTime;
+        for (uint16 i = startRoundIndex; i < factory.getRoom(roomId).rounds; i++) {
+            uint64 start = firstStart + uint64(i) * 60;
+            vm.warp(start);
+            _recordHookSnapshot(int24(100 + int16(i) * 2));
+            rounds.startRound(roomId, i, start, start + 60, start + 50, bytes32("grid"));
+            vm.warp(start + 60);
+            _recordHookSnapshot(int24(130 + int16(i) * 2));
+            rounds.recordSettlement(roomId, i);
+        }
+    }
+
+    function _recordHookSnapshot(int24 tick) internal {
+        hook.recordSnapshotForTesting(key, uint160(1 << 96), tick);
     }
 
     function _approve(address player) internal {

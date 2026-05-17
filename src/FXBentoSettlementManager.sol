@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {AccessManaged} from "./libraries/Guards.sol";
 import {FXBentoRoomEscrow} from "./FXBentoRoomEscrow.sol";
 import {FXBentoRoomFactory} from "./FXBentoRoomFactory.sol";
+import {FXBentoRoundManager} from "./FXBentoRoundManager.sol";
 
 contract FXBentoSettlementManager is AccessManaged {
     bytes32 public constant ATTESTOR_ROLE = keccak256("ATTESTOR_ROLE");
@@ -21,6 +22,7 @@ contract FXBentoSettlementManager is AccessManaged {
     uint64 public challengeWindow = 10 minutes;
     FXBentoRoomFactory public immutable factory;
     FXBentoRoomEscrow public immutable escrow;
+    FXBentoRoundManager public roundManager;
     mapping(uint256 => PendingResults) public pendingResults;
 
     event ResultsSubmitted(uint256 indexed roomId, bytes32 indexed resultsRoot, string metadataURI);
@@ -38,11 +40,17 @@ contract FXBentoSettlementManager is AccessManaged {
         challengeWindow = challengeWindow_;
     }
 
+    function setRoundManager(FXBentoRoundManager roundManager_) external onlyOwner {
+        roundManager = roundManager_;
+    }
+
     function submitResults(uint256 roomId, bytes32 resultsRoot, string calldata metadataURI, bytes calldata attestation)
         external
         onlyRole(ATTESTOR_ROLE)
     {
         require(factory.getRoom(roomId).status == 1 || factory.getRoom(roomId).status == 2, "ROOM_NOT_ACTIVE");
+        require(address(roundManager) != address(0), "ROUND_MANAGER_NOT_SET");
+        require(roundManager.allRoundsEnded(roomId), "ROUNDS_NOT_ENDED");
         require(pendingResults[roomId].submittedAt == 0, "ALREADY_SUBMITTED");
         require(resultsRoot != bytes32(0), "ZERO_ROOT");
         pendingResults[roomId] =

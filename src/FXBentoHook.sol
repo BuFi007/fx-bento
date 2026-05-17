@@ -19,6 +19,7 @@ contract FXBentoHook is IHooks, Pausable {
     using FXPoolIdLibrary for FXPoolKey;
 
     struct PoolSnapshot {
+        uint256 snapshotId;
         uint160 sqrtPriceX96;
         int24 tick;
         uint64 timestamp;
@@ -31,11 +32,17 @@ contract FXBentoHook is IHooks, Pausable {
     ProtocolFeeVault public feeVault;
     mapping(FXPoolId => PoolSnapshot[RING_SIZE]) private snapshots;
     mapping(FXPoolId => uint256) public snapshotCount;
+    mapping(FXPoolId => uint256) public latestSnapshotId;
     mapping(FXPoolId => bool) public hookPoolAllowed;
 
     event PoolInitialized(FXPoolId indexed poolId, address indexed currency0, address indexed currency1);
     event FXBentoMarketSnapshot(
-        FXPoolId indexed poolId, uint160 sqrtPriceX96, int24 tick, uint64 timestamp, uint256 volatility
+        FXPoolId indexed poolId,
+        uint256 indexed snapshotId,
+        uint160 sqrtPriceX96,
+        int24 tick,
+        uint64 timestamp,
+        uint256 volatility
     );
     event PreSwapContext(FXPoolId indexed poolId, address indexed sender);
     event ArcadeFeeVaultUpdated(address indexed feeVault);
@@ -232,6 +239,14 @@ contract FXBentoHook is IHooks, Pausable {
         return latestSnapshot(poolId);
     }
 
+    function snapshotById(FXPoolId poolId, uint256 snapshotId) public view returns (PoolSnapshot memory snapshot) {
+        require(snapshotId != 0, "BAD_SNAPSHOT_ID");
+        uint256 latestId = latestSnapshotId[poolId];
+        require(snapshotId <= latestId && latestId - snapshotId < RING_SIZE, "SNAPSHOT_NOT_AVAILABLE");
+        snapshot = snapshots[poolId][(snapshotId - 1) % RING_SIZE];
+        require(snapshot.snapshotId == snapshotId, "SNAPSHOT_OVERWRITTEN");
+    }
+
     function realizedVolatility(FXPoolId poolId, uint256 window) public view returns (uint256) {
         uint256 count = snapshotCount[poolId];
         if (count < 2) return 0;
@@ -250,9 +265,12 @@ contract FXBentoHook is IHooks, Pausable {
     function _record(FXPoolId poolId, uint160 sqrtPriceX96, int24 tick) internal {
         uint256 count = snapshotCount[poolId];
         uint256 vol = count == 0 ? 0 : realizedVolatility(poolId, count > 8 ? 8 : count);
-        snapshots[poolId][count % RING_SIZE] = PoolSnapshot(sqrtPriceX96, tick, uint64(block.timestamp), vol);
+        uint256 snapshotId = latestSnapshotId[poolId] + 1;
+        snapshots[poolId][count % RING_SIZE] =
+            PoolSnapshot(snapshotId, sqrtPriceX96, tick, uint64(block.timestamp), vol);
         snapshotCount[poolId] = count + 1;
-        emit FXBentoMarketSnapshot(poolId, sqrtPriceX96, tick, uint64(block.timestamp), vol);
+        latestSnapshotId[poolId] = snapshotId;
+        emit FXBentoMarketSnapshot(poolId, snapshotId, sqrtPriceX96, tick, uint64(block.timestamp), vol);
     }
 
     function _setHookPoolAllowed(FXPoolId poolId, bool allowed) internal {

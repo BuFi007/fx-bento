@@ -6,10 +6,10 @@ FX² Arcade Protocol is a decentralized multiplayer arcade layer for FX markets.
 
 ## Architecture
 
-- `FXBentoHook.sol`: canonical v4-core `IHooks` market snapshot hook. It caches allowed pools after initialization, records PoolManager snapshots, emits market events, and never custodies player escrow.
+- `FXBentoHook.sol`: canonical v4-core `IHooks` market snapshot hook. It caches allowed pools after initialization, records indexed PoolManager snapshots, emits market events, and never custodies player escrow.
 - `FXBentoRoomFactory.sol`: creates immutable FX Bento room configs.
 - `FXBentoRoomEscrow.sol`: holds entry fees, refunds cancelled rooms, settles Merkle prize roots, enforces `payouts + rake <= escrow`.
-- `FXBentoRoundManager.sol`: stores round timing, anchors, and settlement prices.
+- `FXBentoRoundManager.sol`: stores round timing, fresh anchor snapshot ids, and settlement snapshot ids.
 - `FXBentoCommitmentManager.sol`: commit-reveal tile selections with optional EIP-712-style batched commitments.
 - `FXBentoScoring.sol`: pure anti-wall validation and fixed-point hit scoring.
 - `FXBentoSettlementManager.sol`: MVP attestor/challenge/finalize flow.
@@ -52,7 +52,7 @@ bun run backend:dev
 
 ## Status
 
-This is an MVP scaffold with passing Foundry coverage for room creation, joins, max-player limits, min-player lock checks, cancellation refunds, commit-reveal, anti-wall rejection, scoring, settlement, rake, prize claims, double-settlement prevention, and payout invariants.
+This is an MVP scaffold with passing Foundry coverage for room creation, joins, max-player limits, min-player lock checks, cancellation refunds, commit-reveal, anti-wall rejection, scoring, hook snapshots, round anchoring, settlement, rake, prize claims, double-settlement prevention, and payout invariants.
 
 Current hardening references:
 
