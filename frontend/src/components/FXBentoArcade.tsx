@@ -3,6 +3,7 @@ import { createPublicClient, createWalletClient, custom, getAddress, isAddress, 
 import {
   ROOM_STATUS,
   commitmentHash,
+  prepareApproveErc20Tx,
   prepareClaimPrizeTx,
   prepareCommitSelectionTx,
   prepareJoinRoomTx,
@@ -73,6 +74,12 @@ type TxStatus = {
   label: string;
   hash?: Hex;
   error?: string;
+};
+
+type ApprovalRequest = {
+  token: Address;
+  spender: Address;
+  amount: bigint;
 };
 
 type ChainState = {
@@ -169,6 +176,7 @@ export function ArcadeLobby({
   const [loadState, setLoadState] = React.useState<"idle" | "loading" | "offline">("idle");
   const [walletAddress, setWalletAddress] = React.useState<Address | null>(null);
   const [txStatus, setTxStatus] = React.useState<TxStatus | null>(null);
+  const [approvalRequest, setApprovalRequest] = React.useState<ApprovalRequest | null>(null);
   const [chainState, setChainState] = React.useState<ChainState>({ connected: false, chainId: null, matches: false });
   const configuredContracts = React.useMemo(() => normalizeContracts(contracts), [contracts]);
 
@@ -272,6 +280,7 @@ export function ArcadeLobby({
       const entryToken = normalizeAddress(room.entryToken);
       const entryFee = readBigIntString(room.entryFeeRaw);
       if (!entryToken || entryFee === null) {
+        setApprovalRequest(null);
         setTxStatus({ label: "Join room", error: "Entry token or exact entry fee is missing from indexed room state." });
         return false;
       }
@@ -281,20 +290,31 @@ export function ArcadeLobby({
         publicClient.readContract({ address: entryToken, abi: erc20Abi, functionName: "allowance", args: [account, configuredContracts.roomEscrow] })
       ]);
       if (balance < entryFee) {
+        setApprovalRequest(null);
         setTxStatus({ label: "Join room", error: "Insufficient entry token balance." });
         return false;
       }
       if (allowance < entryFee) {
+        setApprovalRequest({ token: entryToken, spender: configuredContracts.roomEscrow, amount: entryFee });
         setTxStatus({
           label: "Join room",
-          error: `Entry token allowance is too low. Approve ${shortAddress(configuredContracts.roomEscrow)} before joining.`
+          error: "Entry token allowance is too low. Approve the room escrow before joining."
         });
         return false;
       }
+      setApprovalRequest(null);
       return true;
     },
     [configuredContracts]
   );
+
+  const approveEntryToken = React.useCallback(async () => {
+    if (!approvalRequest) return;
+    await sendTx(
+      "Approve entry token",
+      prepareApproveErc20Tx(approvalRequest.token, { spender: approvalRequest.spender, amount: approvalRequest.amount })
+    );
+  }, [approvalRequest, sendTx]);
 
   const handleRoomAction = React.useCallback(
     async (room: Room, action: PrimaryAction) => {
@@ -340,11 +360,13 @@ export function ArcadeLobby({
       <div className="fxb-layout">
         <FXBentoModeCard backendState={loadState} />
         <WalletPanel
+          approvalRequest={approvalRequest}
           configured={configuredContracts !== null}
           chainState={chainState}
           expectedChainId={chainId}
           status={txStatus}
           walletAddress={walletAddress}
+          onApprove={approveEntryToken}
           onConnect={connectWallet}
         />
         <RoomList rooms={rooms} selectedRoomId={selectedRoom?.id} onSelect={setSelectedRoomId} />
@@ -429,16 +451,20 @@ export function RoomRulesCard({ room }: { room?: Room }) {
 }
 
 export function WalletPanel({
+  approvalRequest,
   chainState,
   configured,
   expectedChainId,
+  onApprove,
   onConnect,
   status,
   walletAddress
 }: {
+  approvalRequest: ApprovalRequest | null;
   chainState: ChainState;
   configured: boolean;
   expectedChainId: number;
+  onApprove: () => Promise<void>;
   onConnect: () => Promise<Address | null>;
   status: TxStatus | null;
   walletAddress: Address | null;
@@ -456,6 +482,11 @@ export function WalletPanel({
         <p className={chainState.matches ? "fxb-tx-status" : "fxb-tx-error"}>
           {chainState.matches ? `Chain ${expectedChainId}` : `Switch to chain ${expectedChainId}`}
         </p>
+      ) : null}
+      {approvalRequest ? (
+        <button className="fxb-primary fxb-approve-button" onClick={() => void onApprove()} type="button">
+          Approve Entry Token
+        </button>
       ) : null}
       {status ? (
         <p className={status.error ? "fxb-tx-error" : "fxb-tx-status"}>

@@ -238,6 +238,19 @@ const roomFactoryAbi = [
   }
 ] as const;
 
+const erc20Abi = [
+  {
+    type: "function",
+    name: "approve",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" }
+    ],
+    outputs: [{ name: "ok", type: "bool" }]
+  }
+] as const;
+
 const roomEscrowAbi = [
   { type: "function", name: "joinRoom", stateMutability: "nonpayable", inputs: [{ name: "roomId", type: "uint256" }], outputs: [] },
   { type: "function", name: "leaveRoom", stateMutability: "nonpayable", inputs: [{ name: "roomId", type: "uint256" }], outputs: [] },
@@ -344,6 +357,16 @@ export function encodeCreateRoom(config: RoomConfig): Hex {
 
 export function prepareCreateRoomTx(contracts: FxBentoContracts, config: RoomConfig): PreparedTransaction {
   return { to: contracts.roomFactory, data: encodeCreateRoom(config) };
+}
+
+export function prepareApproveErc20Tx(
+  token: Address,
+  args: { spender: Address; amount: bigint }
+): PreparedTransaction {
+  return {
+    to: token,
+    data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [args.spender, args.amount] })
+  };
 }
 
 export function prepareJoinRoomTx(contracts: FxBentoContracts, roomId: bigint): PreparedTransaction {

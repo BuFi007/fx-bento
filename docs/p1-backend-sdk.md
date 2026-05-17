@@ -125,6 +125,7 @@ Join now preflights the room entry token before submitting the escrow transactio
 - The backend public room can include `entryToken` and exact integer `entryFeeRaw`.
 - The frontend reads ERC20 `balanceOf(player)` and `allowance(player, roomEscrow)`.
 - Join is blocked with a clear error if balance or allowance is insufficient.
+- Low allowance exposes an explicit `Approve Entry Token` CTA powered by `prepareApproveErc20Tx(...)`.
 
 Commit/reveal persistence:
 
@@ -138,6 +139,5 @@ Claim allocations:
 
 Remaining wallet hardening:
 
-- Add an approve CTA or approve transaction builder for low allowance.
 - Add richer wrong-chain handling for unknown chains that need `wallet_addEthereumChain`.
 - Replace local storage commit persistence with an encrypted/account-scoped wallet or backend relay strategy before production.

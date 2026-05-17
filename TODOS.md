@@ -54,11 +54,11 @@ Remaining P1 production work:
 - Frontend lobby and room surfaces now consume backend room state and `roomFlowActions(...)` for join/refund/settlement/challenge/claim rendering.
 - Frontend join, refund, commit, and claim CTAs now use wallet-backed viem transaction requests from SDK tx builders when contract addresses and contract room ids are available.
 - Wallet CTAs now detect wrong chain, request chain switching, preflight ERC20 balance/allowance before join, persist commit nonce/selection for reveal, and prefer indexed claim allocations from room state.
+- Low entry-token allowance now exposes an explicit approve CTA backed by an SDK ERC20 approve transaction builder.
 
 Remaining P1 production work:
 
 - Implement full UI state matrix from the architecture reference.
-- Add an approve CTA or SDK approve helper for low entry-token allowance.
 - Expand board-first mobile layout with sticky timer and commit/reveal controls.
 - Add replayable result explanation: selected tiles, price path, hit/miss, multiplier, coverage penalty, score delta, rank, prize.
 - Add SDK market, settlement, Liveblocks, wallet state, and claim-allocation helpers beyond the current component-level wiring.

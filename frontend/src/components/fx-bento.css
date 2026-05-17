@@ -25,6 +25,7 @@
 .fxb-tx-status, .fxb-tx-error { border-radius: 8px; font-size: 13px; font-weight: 700; margin: 12px 0 0; overflow-wrap: anywhere; padding: 8px 10px; }
 .fxb-tx-status { background: #edf7f3; color: #187d67; }
 .fxb-tx-error { background: #ffe6ed; color: #a72e59; }
+.fxb-approve-button { margin-top: 12px; width: 100%; }
 .fxb-players { display: grid; grid-template-columns: repeat(10, 1fr); gap: 6px; }
 .fxb-players span { aspect-ratio: 1; border-radius: 50%; background: #eadce6; }
 .fxb-players .active { background: #1fbf98; }
