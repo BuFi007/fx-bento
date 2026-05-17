@@ -32,6 +32,7 @@
 .fxb-chipbar { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .fxb-chipbar progress { width: 180px; accent-color: #ff5f9f; }
 .fxb-board-toolbar { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; }
+.fxb-board-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .fxb-lock { display: inline-flex; margin-bottom: 12px; padding: 6px 10px; border-radius: 8px; background: #fff0b8; color: #6f5411; font-weight: 700; }
 .fxb-grid { display: grid; grid-template-columns: repeat(8, minmax(34px, 1fr)); gap: 8px; }
 .fxb-grid button { aspect-ratio: 1; border: 1px solid #d8c8d2; border-radius: 8px; background: #fdfcff; cursor: pointer; }
@@ -43,4 +44,4 @@
 .fxb-countdown { font-size: 28px; font-weight: 800; color: #b13f72; }
 .fxb-leaderboard { display: grid; gap: 8px; margin: 0; padding-left: 20px; }
 .fxb-leaderboard li { align-items: center; display: flex; justify-content: space-between; gap: 12px; }
-@media (max-width: 900px) { .fxb-lobby { align-items: stretch; flex-direction: column; padding: 24px; } .fxb-panel, .fxb-board-wrap { grid-column: 1 / -1; } }
+@media (max-width: 900px) { .fxb-lobby { align-items: stretch; flex-direction: column; padding: 24px; } .fxb-panel, .fxb-board-wrap { grid-column: 1 / -1; } .fxb-board-actions { grid-template-columns: 1fr; } }

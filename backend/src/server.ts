@@ -29,7 +29,9 @@ type RoomRecord = {
   id: string;
   contractRoomId?: string;
   market: string;
+  entryToken?: Address;
   entryFee: string;
+  entryFeeRaw?: string;
   minPlayers: number;
   maxPlayers: number;
   rounds: number;
@@ -42,9 +44,16 @@ type RoomRecord = {
   commitments: Map<string, CommitmentRecord>;
   reveals: Map<string, RevealRecord>;
   leaderboard: Array<{ player: Address; score: number }>;
+  claimAllocations: ClaimAllocationRecord[];
   resultsRoot?: Hex;
   challengeOpen?: boolean;
   settlementRescueDeadline?: number;
+};
+
+type ClaimAllocationRecord = {
+  player: Address;
+  amount: string;
+  proof: Hex[];
 };
 
 type CommitmentRecord = {
@@ -70,7 +79,9 @@ type IndexedEvent =
       roomId: string;
       localRoomId?: string;
       market?: string;
+      entryToken?: Address;
       entryFee?: string;
+      entryFeeRaw?: string;
       minPlayers?: number;
       maxPlayers?: number;
       rounds?: number;
@@ -86,6 +97,7 @@ type IndexedEvent =
       roomId: string;
       resultsRoot: Hex;
       leaderboard?: Array<{ player: Address; score: number }>;
+      claimAllocations?: ClaimAllocationRecord[];
       txHash?: Hex;
       logIndex?: number;
     }
@@ -152,7 +164,9 @@ app.post("/arcade/rooms", async (c) => {
     id,
     contractRoomId: typeof body.contractRoomId === "string" ? body.contractRoomId : undefined,
     market: typeof body.market === "string" ? body.market : "USDC/EURC",
+    entryToken: normalizeAddress(body.entryToken) ?? undefined,
     entryFee: typeof body.entryFee === "string" ? body.entryFee : "5 USDC",
+    entryFeeRaw: readBigInt(body.entryFeeRaw)?.toString(),
     minPlayers: readNumber(body.minPlayers, 2),
     maxPlayers: readNumber(body.maxPlayers, 20),
     rounds: readNumber(body.rounds, 10),
@@ -164,7 +178,8 @@ app.post("/arcade/rooms", async (c) => {
     spectators: [],
     commitments: new Map(),
     reveals: new Map(),
-    leaderboard: []
+    leaderboard: [],
+    claimAllocations: []
   };
   if (room.minPlayers < 2 || room.minPlayers > room.maxPlayers) {
     return c.json({ error: "invalid player limits" }, 400);
@@ -318,6 +333,9 @@ app.post("/arcade/rooms/:id/settle", async (c) => {
   if (Array.isArray(body.leaderboard)) {
     room.leaderboard = body.leaderboard.flatMap((entry: unknown) => normalizeLeaderboardEntry(entry));
   }
+  if (Array.isArray(body.claimAllocations)) {
+    room.claimAllocations = body.claimAllocations.flatMap((allocation: unknown) => normalizeClaimAllocation(allocation));
+  }
   saveState();
   return c.json(toPublicRoom(room));
 });
@@ -394,7 +412,9 @@ function toPublicRoom(room: RoomRecord) {
     id: room.id,
     contractRoomId: room.contractRoomId,
     market: room.market,
+    entryToken: room.entryToken,
     entryFee: room.entryFee,
+    entryFeeRaw: room.entryFeeRaw,
     minPlayers: room.minPlayers,
     maxPlayers: room.maxPlayers,
     rounds: room.rounds,
@@ -408,6 +428,7 @@ function toPublicRoom(room: RoomRecord) {
     commitments: room.commitments.size,
     reveals: room.reveals.size,
     leaderboard: room.leaderboard,
+    claimAllocations: room.claimAllocations,
     resultsRoot: room.resultsRoot ?? null,
     challengeOpen: room.challengeOpen ?? false,
     settlementRescueDeadline: room.settlementRescueDeadline ?? null,
@@ -475,6 +496,19 @@ function normalizeLeaderboardEntry(entry: unknown): Array<{ player: Address; sco
   return [{ player, score }];
 }
 
+function normalizeClaimAllocation(value: unknown): ClaimAllocationRecord[] {
+  if (!value || typeof value !== "object") return [];
+  const candidate = value as Record<string, unknown>;
+  const player = normalizeAddress(candidate.player);
+  const amount = readBigInt(candidate.amount);
+  if (!player || amount === null) return [];
+  const proof = Array.isArray(candidate.proof) ? candidate.proof.flatMap((item) => {
+    const proofItem = normalizeHex(item);
+    return proofItem ? [proofItem] : [];
+  }) : [];
+  return [{ player, amount: amount.toString(), proof }];
+}
+
 function normalizeAddress(value: unknown): Address | null {
   return typeof value === "string" && isAddress(value) ? (getAddress(value) as Address) : null;
 }
@@ -529,7 +563,9 @@ function normalizeIndexedEvent(value: unknown): IndexedEvent | null {
       ...base,
       localRoomId: typeof event.localRoomId === "string" ? event.localRoomId : undefined,
       market: typeof event.market === "string" ? event.market : undefined,
+      entryToken: normalizeAddress(event.entryToken) ?? undefined,
       entryFee: typeof event.entryFee === "string" ? event.entryFee : undefined,
+      entryFeeRaw: readBigInt(event.entryFeeRaw)?.toString(),
       minPlayers: event.minPlayers === undefined ? undefined : readNumber(event.minPlayers, 2),
       maxPlayers: event.maxPlayers === undefined ? undefined : readNumber(event.maxPlayers, 20),
       rounds: event.rounds === undefined ? undefined : readNumber(event.rounds, 10),
@@ -551,6 +587,9 @@ function normalizeIndexedEvent(value: unknown): IndexedEvent | null {
       resultsRoot,
       leaderboard: Array.isArray(event.leaderboard)
         ? event.leaderboard.flatMap((entry: unknown) => normalizeLeaderboardEntry(entry))
+        : undefined,
+      claimAllocations: Array.isArray(event.claimAllocations)
+        ? event.claimAllocations.flatMap((allocation: unknown) => normalizeClaimAllocation(allocation))
         : undefined
     };
   }
@@ -572,7 +611,15 @@ function normalizeLogEvent(log: Log): IndexedEvent | null {
     };
 
     if (decoded.eventName === "RoomCreated") {
-      return { type: "RoomCreated", ...base };
+      const entryToken = normalizeAddress(args.entryToken);
+      const entryFee = readBigInt(args.entryFee);
+      return {
+        type: "RoomCreated",
+        ...base,
+        entryToken: entryToken ?? undefined,
+        entryFeeRaw: entryFee?.toString(),
+        entryFee: entryFee === null ? undefined : `${Number(entryFee) / 1_000_000} USDC`
+      };
     }
     if (decoded.eventName === "RoomJoined") {
       const player = normalizeAddress(args.player);
@@ -621,7 +668,9 @@ function applyIndexedEvent(event: IndexedEvent): boolean {
         id: localId,
         contractRoomId: event.roomId,
         market: event.market ?? "USDC/EURC",
+        entryToken: event.entryToken,
         entryFee: event.entryFee ?? "5 USDC",
+        entryFeeRaw: event.entryFeeRaw,
         minPlayers: event.minPlayers ?? 2,
         maxPlayers: event.maxPlayers ?? 20,
         rounds: event.rounds ?? 10,
@@ -633,9 +682,13 @@ function applyIndexedEvent(event: IndexedEvent): boolean {
         spectators: [],
         commitments: new Map(),
         reveals: new Map(),
-        leaderboard: []
+        leaderboard: [],
+        claimAllocations: []
       } satisfies RoomRecord);
     room.contractRoomId = event.roomId;
+    if (event.entryToken) room.entryToken = event.entryToken;
+    if (event.entryFee) room.entryFee = event.entryFee;
+    if (event.entryFeeRaw) room.entryFeeRaw = event.entryFeeRaw;
     rooms.set(localId, room);
     roomIdByContractId.set(event.roomId, localId);
     return true;
@@ -676,6 +729,7 @@ function applyIndexedEvent(event: IndexedEvent): boolean {
     room.resultsRoot = event.resultsRoot;
     room.challengeOpen = false;
     if (event.leaderboard) room.leaderboard = event.leaderboard;
+    if (event.claimAllocations) room.claimAllocations = event.claimAllocations;
     return true;
   }
   if (event.type === "RoomCancelled" || event.type === "SettlementRescued") {

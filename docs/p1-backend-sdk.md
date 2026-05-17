@@ -108,20 +108,36 @@ The rendered room CTAs now use viem wallet clients and the SDK transaction build
 
 - `contracts`: `roomFactory`, `roomEscrow`, `commitmentManager`, and `settlementManager` addresses.
 - `chainId`: used when building tile commitment hashes.
-- `claimAllocations`: winner allocation data keyed by frontend room id or contract room id.
+- `claimAllocations`: optional fallback winner allocation data keyed by frontend room id or contract room id.
 
 Implemented wallet-backed actions:
 
 - Join room: `prepareJoinRoomTx(...)` against `FXBentoRoomEscrow`.
 - Claim refund: `prepareRefundTx(...)` against `FXBentoRoomEscrow`.
 - Commit tiles: `prepareCommitSelectionTx(...)` against `FXBentoCommitmentManager`.
+- Reveal tiles: `prepareRevealSelectionTx(...)` against `FXBentoCommitmentManager`.
 - Claim prize: `prepareClaimPrizeTx(...)` against `FXBentoRoomEscrow`.
 
-The component connects through `window.ethereum`, normalizes the selected account, and sends the prepared calldata through `walletClient.sendTransaction(...)`. CTAs stay disabled when a room lacks a contract room id or a required claim allocation.
+The component connects through `window.ethereum`, normalizes the selected account, checks the connected chain, requests `wallet_switchEthereumChain` when needed, and sends the prepared calldata through `walletClient.sendTransaction(...)`. CTAs stay disabled when a room lacks a contract room id or a required claim allocation.
+
+Join now preflights the room entry token before submitting the escrow transaction:
+
+- The backend public room can include `entryToken` and exact integer `entryFeeRaw`.
+- The frontend reads ERC20 `balanceOf(player)` and `allowance(player, roomEscrow)`.
+- Join is blocked with a clear error if balance or allowance is insufficient.
+
+Commit/reveal persistence:
+
+- Successful commit preparation stores `chainId`, `roomId`, `roundIndex`, player, selection, nonce, and commitment in local storage.
+- Reveal reuses the stored selection and nonce to prepare the matching reveal transaction.
+
+Claim allocations:
+
+- The backend public room can now include `claimAllocations` from settlement/indexer input.
+- The frontend prefers the connected wallet's indexed claim allocation and only falls back to the optional prop map.
 
 Remaining wallet hardening:
 
-- Add entry-token allowance and balance preflight for paid joins.
-- Add wrong-chain detection and chain switching.
-- Persist commit nonce/client state so reveal UX can reuse it.
-- Feed claim allocations from finalized settlement results instead of prop injection.
+- Add an approve CTA or approve transaction builder for low allowance.
+- Add richer wrong-chain handling for unknown chains that need `wallet_addEthereumChain`.
+- Replace local storage commit persistence with an encrypted/account-scoped wallet or backend relay strategy before production.

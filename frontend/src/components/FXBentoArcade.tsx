@@ -1,11 +1,12 @@
 import * as React from "react";
-import { createWalletClient, custom, getAddress, isAddress, type Address, type Hex } from "viem";
+import { createPublicClient, createWalletClient, custom, getAddress, isAddress, parseAbi, type Address, type Hex } from "viem";
 import {
   ROOM_STATUS,
   commitmentHash,
   prepareClaimPrizeTx,
   prepareCommitSelectionTx,
   prepareJoinRoomTx,
+  prepareRevealSelectionTx,
   prepareRefundTx,
   roomFlowActions,
   selectedTilesHash,
@@ -28,7 +29,9 @@ type BackendRoom = {
   id: string;
   contractRoomId?: string;
   market: string;
+  entryToken?: string;
   entryFee: string;
+  entryFeeRaw?: string;
   minPlayers: number;
   maxPlayers: number;
   rounds: number;
@@ -42,6 +45,7 @@ type BackendRoom = {
   commitments: number;
   reveals: number;
   leaderboard: Array<{ player: string; score: number }>;
+  claimAllocations?: Array<{ player: string; amount: string; proof: Hex[] }>;
   resultsRoot: string | null;
   challengeOpen: boolean;
   settlementRescueDeadline: number | null;
@@ -70,6 +74,32 @@ type TxStatus = {
   hash?: Hex;
   error?: string;
 };
+
+type ChainState = {
+  connected: boolean;
+  chainId: number | null;
+  matches: boolean;
+};
+
+type StoredCommitment = {
+  chainId: number;
+  roomId: string;
+  roundIndex: number;
+  player: Address;
+  selection: {
+    rows: number[];
+    cols: number[];
+    chipCount: number;
+    clientStateHash: Hex;
+  };
+  nonce: Hex;
+  commitment: Hex;
+};
+
+const erc20Abi = parseAbi([
+  "function balanceOf(address owner) view returns (uint256)",
+  "function allowance(address owner, address spender) view returns (uint256)"
+]);
 
 const sampleRooms: BackendRoom[] = [
   {
@@ -139,6 +169,7 @@ export function ArcadeLobby({
   const [loadState, setLoadState] = React.useState<"idle" | "loading" | "offline">("idle");
   const [walletAddress, setWalletAddress] = React.useState<Address | null>(null);
   const [txStatus, setTxStatus] = React.useState<TxStatus | null>(null);
+  const [chainState, setChainState] = React.useState<ChainState>({ connected: false, chainId: null, matches: false });
   const configuredContracts = React.useMemo(() => normalizeContracts(contracts), [contracts]);
 
   React.useEffect(() => {
@@ -162,7 +193,21 @@ export function ArcadeLobby({
   }, [backendUrl]);
 
   const selectedRoom = rooms.find((room) => room.id === selectedRoomId) ?? rooms[0];
-  const selectedClaim = selectedRoom ? claimAllocations[selectedRoom.id] ?? claimAllocations[selectedRoom.contractRoomId ?? ""] : undefined;
+  const indexedClaim = selectedRoom && walletAddress ? claimAllocationForPlayer(selectedRoom, walletAddress) : undefined;
+  const selectedClaim = indexedClaim ?? (selectedRoom ? claimAllocations[selectedRoom.id] ?? claimAllocations[selectedRoom.contractRoomId ?? ""] : undefined);
+
+  const refreshChain = React.useCallback(async () => {
+    if (!window.ethereum) {
+      const next = { connected: false, chainId: null, matches: false };
+      setChainState(next);
+      return next;
+    }
+    const hexChainId = await window.ethereum.request({ method: "eth_chainId" }).catch(() => null);
+    const currentChainId = typeof hexChainId === "string" ? Number.parseInt(hexChainId, 16) : null;
+    const next = { connected: currentChainId !== null, chainId: currentChainId, matches: currentChainId === chainId };
+    setChainState(next);
+    return next;
+  }, [chainId]);
 
   const connectWallet = React.useCallback(async () => {
     if (!window.ethereum) {
@@ -174,9 +219,31 @@ export function ArcadeLobby({
       ? getAddress(accounts[0])
       : null;
     setWalletAddress(account);
+    await refreshChain();
     if (!account) setTxStatus({ label: "Wallet unavailable", error: "No account returned by wallet." });
     return account;
-  }, []);
+  }, [refreshChain]);
+
+  React.useEffect(() => {
+    void refreshChain();
+  }, [refreshChain]);
+
+  const ensureChain = React.useCallback(async () => {
+    if (!window.ethereum) {
+      setTxStatus({ label: "Wallet unavailable", error: "No injected wallet was found." });
+      return false;
+    }
+    const current = await refreshChain();
+    if (current.matches) return true;
+    try {
+      await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: numberToHexChainId(chainId) }] });
+      await refreshChain();
+      return true;
+    } catch (error) {
+      setTxStatus({ label: "Wrong chain", error: error instanceof Error ? error.message : `Switch wallet to chain ${chainId}.` });
+      return false;
+    }
+  }, [chainId, refreshChain]);
 
   const sendTx = React.useCallback(
     async (label: string, tx: PreparedTransaction) => {
@@ -186,6 +253,7 @@ export function ArcadeLobby({
       }
       const account = walletAddress ?? await connectWallet();
       if (!account) return;
+      if (!await ensureChain()) return;
       setTxStatus({ label: `${label} pending` });
       try {
         const walletClient = createWalletClient({ account, transport: custom(window.ethereum) });
@@ -195,7 +263,37 @@ export function ArcadeLobby({
         setTxStatus({ label, error: error instanceof Error ? error.message : "Transaction failed." });
       }
     },
-    [connectWallet, walletAddress]
+    [connectWallet, ensureChain, walletAddress]
+  );
+
+  const preflightJoin = React.useCallback(
+    async (room: Room, account: Address) => {
+      if (!window.ethereum || !configuredContracts) return false;
+      const entryToken = normalizeAddress(room.entryToken);
+      const entryFee = readBigIntString(room.entryFeeRaw);
+      if (!entryToken || entryFee === null) {
+        setTxStatus({ label: "Join room", error: "Entry token or exact entry fee is missing from indexed room state." });
+        return false;
+      }
+      const publicClient = createPublicClient({ transport: custom(window.ethereum) });
+      const [balance, allowance] = await Promise.all([
+        publicClient.readContract({ address: entryToken, abi: erc20Abi, functionName: "balanceOf", args: [account] }),
+        publicClient.readContract({ address: entryToken, abi: erc20Abi, functionName: "allowance", args: [account, configuredContracts.roomEscrow] })
+      ]);
+      if (balance < entryFee) {
+        setTxStatus({ label: "Join room", error: "Insufficient entry token balance." });
+        return false;
+      }
+      if (allowance < entryFee) {
+        setTxStatus({
+          label: "Join room",
+          error: `Entry token allowance is too low. Approve ${shortAddress(configuredContracts.roomEscrow)} before joining.`
+        });
+        return false;
+      }
+      return true;
+    },
+    [configuredContracts]
   );
 
   const handleRoomAction = React.useCallback(
@@ -209,10 +307,16 @@ export function ArcadeLobby({
         setTxStatus({ label: action.label, error: "Room is missing a contract room id." });
         return;
       }
-      if (action.kind === "join") await sendTx("Join room", prepareJoinRoomTx(configuredContracts, roomId));
+      if (action.kind === "join") {
+        const account = walletAddress ?? await connectWallet();
+        if (!account || !await ensureChain() || !await preflightJoin(room, account)) return;
+        await sendTx("Join room", prepareJoinRoomTx(configuredContracts, roomId));
+      }
       if (action.kind === "refund") await sendTx("Claim refund", prepareRefundTx(configuredContracts, roomId));
       if (action.kind === "claim") {
-        const allocation = claimAllocations[room.id] ?? claimAllocations[room.contractRoomId ?? ""];
+        const account = walletAddress ?? await connectWallet();
+        if (!account) return;
+        const allocation = claimAllocationForPlayer(room, account) ?? claimAllocations[room.id] ?? claimAllocations[room.contractRoomId ?? ""];
         if (!allocation) {
           setTxStatus({ label: "Claim prize", error: "Prize allocation proof is not available yet." });
           return;
@@ -220,7 +324,7 @@ export function ArcadeLobby({
         await sendTx("Claim prize", prepareClaimPrizeTx(configuredContracts, { roomId, amount: allocation.amount, proof: allocation.proof }));
       }
     },
-    [claimAllocations, configuredContracts, sendTx]
+    [claimAllocations, configuredContracts, connectWallet, ensureChain, preflightJoin, sendTx, walletAddress]
   );
 
   return (
@@ -237,6 +341,8 @@ export function ArcadeLobby({
         <FXBentoModeCard backendState={loadState} />
         <WalletPanel
           configured={configuredContracts !== null}
+          chainState={chainState}
+          expectedChainId={chainId}
           status={txStatus}
           walletAddress={walletAddress}
           onConnect={connectWallet}
@@ -252,6 +358,7 @@ export function ArcadeLobby({
             onSendTx={sendTx}
             player={walletAddress}
             room={selectedRoom}
+            setTxStatus={setTxStatus}
             onConnect={connectWallet}
           />
         ) : null}
@@ -322,12 +429,16 @@ export function RoomRulesCard({ room }: { room?: Room }) {
 }
 
 export function WalletPanel({
+  chainState,
   configured,
+  expectedChainId,
   onConnect,
   status,
   walletAddress
 }: {
+  chainState: ChainState;
   configured: boolean;
+  expectedChainId: number;
   onConnect: () => Promise<Address | null>;
   status: TxStatus | null;
   walletAddress: Address | null;
@@ -341,6 +452,11 @@ export function WalletPanel({
       <button className="fxb-secondary" onClick={() => void onConnect()} type="button">
         {walletAddress ? shortAddress(walletAddress) : "Connect Wallet"}
       </button>
+      {walletAddress ? (
+        <p className={chainState.matches ? "fxb-tx-status" : "fxb-tx-error"}>
+          {chainState.matches ? `Chain ${expectedChainId}` : `Switch to chain ${expectedChainId}`}
+        </p>
+      ) : null}
       {status ? (
         <p className={status.error ? "fxb-tx-error" : "fxb-tx-status"}>
           {status.error ?? (status.hash ? `${status.label}: ${shortAddress(status.hash)}` : status.label)}
@@ -403,7 +519,8 @@ export function GameBoard({
   onConnect,
   onSendTx,
   player,
-  room
+  room,
+  setTxStatus
 }: {
   chainId: number;
   contracts: FxBentoContracts | null;
@@ -411,8 +528,10 @@ export function GameBoard({
   onSendTx: (label: string, tx: PreparedTransaction) => Promise<void>;
   player: Address | null;
   room: Room;
+  setTxStatus: React.Dispatch<React.SetStateAction<TxStatus | null>>;
 }) {
   const [selected, setSelected] = React.useState<Set<string>>(new Set());
+  const [storedCommitment, setStoredCommitment] = React.useState<StoredCommitment | null>(null);
   const picks = [...selected].map(decodeTile);
   const patternError = validateAntiWall({
     rows: picks.map((pick) => pick.row),
@@ -422,6 +541,17 @@ export function GameBoard({
   });
   const canSelect = room.actions.canCommitOrReveal || room.status === ROOM_STATUS.Lobby;
   const canCommit = room.actions.canCommitOrReveal && !patternError && selected.size > 0;
+  const roomId = contractRoomId(room);
+  const roundIndex = 0;
+
+  React.useEffect(() => {
+    if (!player || roomId === null) {
+      setStoredCommitment(null);
+      return;
+    }
+    setStoredCommitment(loadStoredCommitment(chainId, roomId, roundIndex, player));
+  }, [chainId, player, roomId]);
+
   const toggle = (key: string) => setSelected((prev) => {
     const next = new Set(prev);
     if (next.has(key)) next.delete(key);
@@ -430,7 +560,6 @@ export function GameBoard({
   });
   const commitSelection = async () => {
     if (!contracts) return;
-    const roomId = contractRoomId(room);
     if (roomId === null) return;
     const account = player ?? await onConnect();
     if (!account) return;
@@ -444,12 +573,39 @@ export function GameBoard({
     const commitment = commitmentHash({
       chainId: BigInt(chainId),
       roomId,
-      roundIndex: 0,
+      roundIndex,
       player: account,
       selectedTilesHash: selectedTilesHash(selection),
       nonce
     });
-    await onSendTx("Commit selection", prepareCommitSelectionTx(contracts, { roomId, roundIndex: 0, commitment }));
+    const stored = {
+      chainId,
+      roomId: roomId.toString(),
+      roundIndex,
+      player: account,
+      selection,
+      nonce,
+      commitment
+    };
+    saveStoredCommitment(stored);
+    setStoredCommitment(stored);
+    await onSendTx("Commit selection", prepareCommitSelectionTx(contracts, { roomId, roundIndex, commitment }));
+  };
+  const revealSelection = async () => {
+    if (!contracts || roomId === null || !storedCommitment) return;
+    if (player && storedCommitment.player.toLowerCase() !== player.toLowerCase()) {
+      setTxStatus({ label: "Reveal selection", error: "Stored commitment belongs to a different wallet." });
+      return;
+    }
+    await onSendTx(
+      "Reveal selection",
+      prepareRevealSelectionTx(contracts, {
+        roomId,
+        roundIndex: storedCommitment.roundIndex,
+        selection: storedCommitment.selection,
+        nonce: storedCommitment.nonce
+      })
+    );
   };
 
   return (
@@ -462,9 +618,14 @@ export function GameBoard({
       <div className={patternError ? "fxb-warning" : "fxb-score-preview"}>
         {patternError ?? `${Math.max(0, 5 - selected.size)} chips ready`}
       </div>
-      <button className="fxb-primary fxb-commit-button" disabled={!canCommit || !contracts || contractRoomId(room) === null} onClick={() => void commitSelection()} type="button">
-        Commit Tiles
-      </button>
+      <div className="fxb-board-actions">
+        <button className="fxb-primary fxb-commit-button" disabled={!canCommit || !contracts || roomId === null} onClick={() => void commitSelection()} type="button">
+          Commit Tiles
+        </button>
+        <button className="fxb-secondary fxb-commit-button" disabled={!contracts || roomId === null || !storedCommitment} onClick={() => void revealSelection()} type="button">
+          Reveal Tiles
+        </button>
+      </div>
     </section>
   );
 }
@@ -608,9 +769,58 @@ function normalizeAddress(value?: string): Address | null {
   return value && isAddress(value) ? getAddress(value) : null;
 }
 
+function readBigIntString(value?: string): bigint | null {
+  return value && /^\d+$/.test(value) ? BigInt(value) : null;
+}
+
 function contractRoomId(room: Room): bigint | null {
   const value = room.contractRoomId ?? (/^\d+$/.test(room.id) ? room.id : null);
   return value && /^\d+$/.test(value) ? BigInt(value) : null;
+}
+
+function numberToHexChainId(chainId: number): Hex {
+  return `0x${chainId.toString(16)}` as Hex;
+}
+
+function claimAllocationForPlayer(room: Room, player: Address): ClaimAllocation | undefined {
+  const allocation = room.claimAllocations?.find((entry) => normalizeAddress(entry.player)?.toLowerCase() === player.toLowerCase());
+  const amount = readBigIntString(allocation?.amount);
+  return allocation && amount !== null ? { amount, proof: allocation.proof } : undefined;
+}
+
+function commitmentStorageKey(chainId: number, roomId: bigint, roundIndex: number, player: Address): string {
+  return `fx-bento:commitment:${chainId}:${roomId.toString()}:${roundIndex}:${player.toLowerCase()}`;
+}
+
+function saveStoredCommitment(commitment: StoredCommitment): void {
+  localStorage.setItem(
+    commitmentStorageKey(commitment.chainId, BigInt(commitment.roomId), commitment.roundIndex, commitment.player),
+    JSON.stringify(commitment)
+  );
+}
+
+function loadStoredCommitment(chainId: number, roomId: bigint, roundIndex: number, player: Address): StoredCommitment | null {
+  const raw = localStorage.getItem(commitmentStorageKey(chainId, roomId, roundIndex, player));
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as StoredCommitment;
+    if (
+      parsed.chainId !== chainId ||
+      parsed.roomId !== roomId.toString() ||
+      parsed.roundIndex !== roundIndex ||
+      normalizeAddress(parsed.player)?.toLowerCase() !== player.toLowerCase() ||
+      !normalizeHex32(parsed.nonce) ||
+      !normalizeHex32(parsed.commitment) ||
+      !normalizeHex32(parsed.selection.clientStateHash)
+    ) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeHex32(value?: string): Hex | null {
+  return value && /^0x[0-9a-fA-F]{64}$/.test(value) ? value as Hex : null;
 }
 
 function randomBytes32(): Hex {
