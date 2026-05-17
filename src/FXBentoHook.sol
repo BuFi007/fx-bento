@@ -57,6 +57,8 @@ contract FXBentoHook is IHooks, Pausable {
         Pausable(owner_)
     {
         require(address(poolManager_) != address(0), "ZERO_POOL_MANAGER");
+        require(address(registry_) != address(0), "ZERO_REGISTRY");
+        require(address(feeVault_) != address(0), "ZERO_FEE_VAULT");
         Hooks.validateHookPermissions(IHooks(address(this)), getHookPermissions());
         poolManager = poolManager_;
         registry = registry_;
@@ -93,6 +95,7 @@ contract FXBentoHook is IHooks, Pausable {
     }
 
     function setFeeVault(ProtocolFeeVault feeVault_) external onlyOwner {
+        require(address(feeVault_) != address(0), "ZERO_FEE_VAULT");
         feeVault = feeVault_;
         emit ArcadeFeeVaultUpdated(address(feeVault_));
     }
@@ -221,12 +224,6 @@ contract FXBentoHook is IHooks, Pausable {
         returns (bytes4)
     {
         revert("HOOK_NOT_ENABLED");
-    }
-
-    function recordSnapshotForTesting(FXPoolKey calldata key, uint160 sqrtPriceX96, int24 tick) external onlyOwner {
-        FXPoolId poolId = FXPoolIdLibrary.toId(key);
-        require(registry.isAllowed(poolId), "POOL_NOT_ALLOWED");
-        _record(poolId, sqrtPriceX96, tick);
     }
 
     function latestSnapshot(FXPoolId poolId) public view returns (PoolSnapshot memory) {

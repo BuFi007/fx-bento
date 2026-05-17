@@ -26,6 +26,7 @@ contract DeployFXBento is Script {
         FXBentoRoomFactory factory = new FXBentoRoomFactory(owner, registry);
         FXBentoRoomEscrow escrow = new FXBentoRoomEscrow(owner, factory, vault);
         factory.setEscrow(address(escrow));
+        vault.setFeeNotifier(address(escrow));
         FXBentoRoundManager rounds = new FXBentoRoundManager(owner, factory, hook);
         FXBentoSettlementManager settlement = new FXBentoSettlementManager(owner, factory, escrow);
         escrow.setSettlementManager(address(settlement));

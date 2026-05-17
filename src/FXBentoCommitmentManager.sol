@@ -71,6 +71,7 @@ contract FXBentoCommitmentManager is AccessManaged {
         require(round.status == 1, "ROUND_NOT_ACTIVE");
         require(block.timestamp >= round.lockTime, "TOO_EARLY");
         require(block.timestamp <= round.endTime + 5 minutes, "REVEAL_CLOSED");
+        require(revealedSelectionHash[roomId][roundIndex][msg.sender] == bytes32(0), "ALREADY_REVEALED");
         bytes32 selectedTilesHash =
             keccak256(abi.encode(selection.rows, selection.cols, selection.chipCount, selection.clientStateHash));
         require(
@@ -88,6 +89,7 @@ contract FXBentoCommitmentManager is AccessManaged {
         require(escrow.canPlay(roomId, player), "NOT_PLAYER");
         require(round.status == 1, "ROUND_NOT_ACTIVE");
         require(block.timestamp < round.lockTime, "COMMIT_CLOSED");
+        require(commitment != bytes32(0), "ZERO_COMMITMENT");
         require(commitments[roomId][roundIndex][player] == bytes32(0), "ALREADY_COMMITTED");
         commitments[roomId][roundIndex][player] = commitment;
         emit SelectionCommitted(roomId, roundIndex, player, commitment);

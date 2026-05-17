@@ -35,11 +35,14 @@ contract FXBentoRoomFactory is Pausable {
     }
 
     function setEscrow(address escrow_) external onlyOwner {
+        require(escrow_ != address(0), "ZERO_ESCROW");
+        require(escrow == address(0), "ESCROW_SET");
         escrow = escrow_;
         emit EscrowUpdated(escrow_);
     }
 
     function setEntryToken(address token, bool allowed) external onlyOwner {
+        require(token != address(0), "ZERO_ENTRY_TOKEN");
         allowedEntryToken[token] = allowed;
         emit EntryTokenAllowed(token, allowed);
     }

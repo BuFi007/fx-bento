@@ -8,14 +8,23 @@ contract ProtocolFeeVault is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     address public treasury;
+    address public feeNotifier;
 
     event TreasuryUpdated(address indexed treasury);
+    event FeeNotifierUpdated(address indexed feeNotifier);
     event FeeReceived(address indexed token, uint256 indexed roomId, uint256 amount);
     event FeeSwept(address indexed token, address indexed treasury, uint256 amount);
 
     constructor(address owner_, address treasury_) Ownable(owner_) {
         require(treasury_ != address(0), "ZERO_TREASURY");
         treasury = treasury_;
+    }
+
+    function setFeeNotifier(address feeNotifier_) external onlyOwner {
+        require(feeNotifier_ != address(0), "ZERO_FEE_NOTIFIER");
+        require(feeNotifier == address(0), "FEE_NOTIFIER_SET");
+        feeNotifier = feeNotifier_;
+        emit FeeNotifierUpdated(feeNotifier_);
     }
 
     function setTreasury(address treasury_) external onlyOwner {
@@ -25,6 +34,7 @@ contract ProtocolFeeVault is Ownable, ReentrancyGuard {
     }
 
     function notifyFee(address token, uint256 roomId, uint256 amount) external {
+        require(msg.sender == feeNotifier, "NOT_FEE_NOTIFIER");
         emit FeeReceived(token, roomId, amount);
     }
 
