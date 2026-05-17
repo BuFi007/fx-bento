@@ -18,5 +18,6 @@ Allowed transitions:
 | Lobby | Cancelled | `FXBentoRoomEscrow` | Active players < min players and `block.timestamp >= startTime`. |
 | Locked | Settling | `FXBentoRoomEscrow` or authorized coordinator path | Room play has ended. |
 | Locked/Settling | Settled | `FXBentoRoomEscrow`, called by `FXBentoSettlementManager` | Valid final results root and payout cap. |
+| Locked/Settling | Cancelled | `FXBentoRoomEscrow`, called by `FXBentoSettlementManager` | Settlement rescue deadline has passed and no results were finalized. |
 
 The factory must not expose arbitrary status writes. A room cannot return to lobby after locking.

@@ -122,10 +122,10 @@ contract FXBentoRoomFactory is Pausable {
             return to == STATUS_LOCKED || to == STATUS_CANCELLED;
         }
         if (from == STATUS_LOCKED) {
-            return to == STATUS_SETTLING || to == STATUS_SETTLED;
+            return to == STATUS_SETTLING || to == STATUS_SETTLED || to == STATUS_CANCELLED;
         }
         if (from == STATUS_SETTLING) {
-            return to == STATUS_SETTLED;
+            return to == STATUS_SETTLED || to == STATUS_CANCELLED;
         }
         return false;
     }

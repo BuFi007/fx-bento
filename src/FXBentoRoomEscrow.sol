@@ -102,6 +102,15 @@ contract FXBentoRoomEscrow is AccessManaged, ReentrancyGuard {
         emit RoomCancelled(roomId);
     }
 
+    function cancelLockedRoom(uint256 roomId) external {
+        require(msg.sender == settlementManager, "NOT_SETTLEMENT_MANAGER");
+        require(resultsRoot[roomId] == bytes32(0), "ALREADY_SETTLED");
+        RoomView memory room = factory.getRoom(roomId);
+        require(room.status == 1 || room.status == 2, "ROOM_NOT_RESCUABLE");
+        factory.transitionRoomStatus(roomId, room.status, 4);
+        emit RoomCancelled(roomId);
+    }
+
     function refund(uint256 roomId) external nonReentrant {
         RoomView memory room = factory.getRoom(roomId);
         require(room.status == 4, "ROOM_NOT_CANCELLED");

@@ -9,6 +9,10 @@ import {PayoutRoot, RoomView} from "./libraries/FXBentoTypes.sol";
 
 contract FXBentoSettlementManager is AccessManaged {
     bytes32 public constant ATTESTOR_ROLE = keccak256("ATTESTOR_ROLE");
+    uint8 public constant CHALLENGE_NONE = 0;
+    uint8 public constant CHALLENGE_OPEN = 1;
+    uint8 public constant CHALLENGE_ACCEPTED = 2;
+    uint8 public constant CHALLENGE_REJECTED = 3;
 
     struct PendingResults {
         PayoutRoot payout;
@@ -16,12 +20,15 @@ contract FXBentoSettlementManager is AccessManaged {
         string metadataURI;
         bytes attestation;
         uint64 submittedAt;
+        uint64 challengedAt;
+        uint8 challengeStatus;
         bool challenged;
         bool finalized;
         bool resolved;
     }
 
     uint64 public challengeWindow = 10 minutes;
+    uint64 public settlementRescueDelay = 1 days;
     FXBentoRoomFactory public immutable factory;
     FXBentoRoomEscrow public immutable escrow;
     FXBentoRoundManager public roundManager;
@@ -31,6 +38,8 @@ contract FXBentoSettlementManager is AccessManaged {
     event ResultsChallenged(uint256 indexed roomId, bytes proof);
     event ChallengeResolved(uint256 indexed roomId, bool accepted);
     event ResultsFinalized(uint256 indexed roomId, bytes32 indexed resultsRoot);
+    event SettlementRescueDelayUpdated(uint64 settlementRescueDelay);
+    event SettlementRescued(uint256 indexed roomId);
 
     constructor(address owner_, FXBentoRoomFactory factory_, FXBentoRoomEscrow escrow_) AccessManaged(owner_) {
         factory = factory_;
@@ -40,6 +49,12 @@ contract FXBentoSettlementManager is AccessManaged {
     function setChallengeWindow(uint64 challengeWindow_) external onlyOwner {
         require(challengeWindow_ <= 2 days, "WINDOW_TOO_LONG");
         challengeWindow = challengeWindow_;
+    }
+
+    function setSettlementRescueDelay(uint64 settlementRescueDelay_) external onlyOwner {
+        require(settlementRescueDelay_ <= 30 days, "RESCUE_DELAY_TOO_LONG");
+        settlementRescueDelay = settlementRescueDelay_;
+        emit SettlementRescueDelayUpdated(settlementRescueDelay_);
     }
 
     function setRoundManager(FXBentoRoundManager roundManager_) external onlyOwner {
@@ -65,6 +80,8 @@ contract FXBentoSettlementManager is AccessManaged {
             metadataURI: metadataURI,
             attestation: attestation,
             submittedAt: uint64(block.timestamp),
+            challengedAt: 0,
+            challengeStatus: CHALLENGE_NONE,
             challenged: false,
             finalized: false,
             resolved: false
@@ -75,8 +92,13 @@ contract FXBentoSettlementManager is AccessManaged {
     function challengeResults(uint256 roomId, bytes calldata proof) external {
         PendingResults storage pending = pendingResults[roomId];
         require(pending.submittedAt != 0, "NO_RESULTS");
+        require(!pending.finalized, "FINALIZED");
+        require(!pending.challenged, "ALREADY_CHALLENGED");
+        require(proof.length != 0, "EMPTY_PROOF");
         require(block.timestamp <= pending.submittedAt + challengeWindow, "CHALLENGE_CLOSED");
         pending.challenged = true;
+        pending.challengedAt = uint64(block.timestamp);
+        pending.challengeStatus = CHALLENGE_OPEN;
         emit ResultsChallenged(roomId, proof);
     }
 
@@ -90,6 +112,7 @@ contract FXBentoSettlementManager is AccessManaged {
         require(pending.submittedAt != 0, "NO_RESULTS");
         require(pending.challenged, "NOT_CHALLENGED");
         require(!pending.finalized, "FINALIZED");
+        require(block.timestamp <= pending.challengedAt + settlementRescueDelay, "CHALLENGE_EXPIRED");
         if (accepted) {
             RoomView memory room = factory.getRoom(roomId);
             _validatePayout(roomId, room, replacement, metadataURI);
@@ -97,6 +120,9 @@ contract FXBentoSettlementManager is AccessManaged {
             pending.payoutSchemaHash = escrow.hashPayoutRoot(replacement);
             pending.metadataURI = metadataURI;
             pending.submittedAt = uint64(block.timestamp);
+            pending.challengeStatus = CHALLENGE_ACCEPTED;
+        } else {
+            pending.challengeStatus = CHALLENGE_REJECTED;
         }
         pending.challenged = false;
         pending.resolved = true;
@@ -112,6 +138,34 @@ contract FXBentoSettlementManager is AccessManaged {
         pending.finalized = true;
         escrow.settleRoom(roomId, pending.payout, pending.attestation);
         emit ResultsFinalized(roomId, pending.payout.winnerRoot);
+    }
+
+    function rescueFailedSettlement(uint256 roomId) external {
+        RoomView memory room = factory.getRoom(roomId);
+        require(room.status == 1 || room.status == 2, "ROOM_NOT_RESCUABLE");
+        require(block.timestamp >= settlementRescueDeadline(roomId), "RESCUE_PENDING");
+        PendingResults storage pending = pendingResults[roomId];
+        require(!pending.finalized, "FINALIZED");
+        escrow.cancelLockedRoom(roomId);
+        emit SettlementRescued(roomId);
+    }
+
+    function challengeDeadline(uint256 roomId) public view returns (uint256) {
+        PendingResults storage pending = pendingResults[roomId];
+        require(pending.submittedAt != 0, "NO_RESULTS");
+        return pending.submittedAt + challengeWindow;
+    }
+
+    function settlementRescueDeadline(uint256 roomId) public view returns (uint256) {
+        RoomView memory room = factory.getRoom(roomId);
+        PendingResults storage pending = pendingResults[roomId];
+        if (pending.submittedAt == 0) return _roomEndTime(room) + settlementRescueDelay;
+        uint256 deadline = pending.submittedAt + challengeWindow + settlementRescueDelay;
+        if (pending.challenged) {
+            uint256 challengedDeadline = pending.challengedAt + settlementRescueDelay;
+            if (challengedDeadline > deadline) return challengedDeadline;
+        }
+        return deadline;
     }
 
     function _validatePayout(
@@ -130,5 +184,9 @@ contract FXBentoSettlementManager is AccessManaged {
         uint256 escrowed = escrow.escrowed(roomId);
         require(payout.protocolFee == escrowed * room.rakeBps / escrow.BPS(), "BAD_PROTOCOL_FEE");
         require(payout.payoutTotal + payout.protocolFee <= escrowed, "PAYOUT_EXCEEDS_ESCROW");
+    }
+
+    function _roomEndTime(RoomView memory room) internal pure returns (uint256) {
+        return uint256(room.startTime) + uint256(room.rounds) * uint256(room.roundDuration);
     }
 }

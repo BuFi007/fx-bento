@@ -12,7 +12,7 @@ FX² Arcade Protocol is a decentralized multiplayer arcade layer for FX markets.
 - `FXBentoRoundManager.sol`: stores round timing, fresh anchor snapshot ids, and settlement snapshot ids.
 - `FXBentoCommitmentManager.sol`: commit-reveal tile selections with optional EIP-712-style batched commitments.
 - `FXBentoScoring.sol`: pure anti-wall validation and fixed-point hit scoring.
-- `FXBentoSettlementManager.sol`: MVP attestor/challenge/finalize flow with typed payout payload validation.
+- `FXBentoSettlementManager.sol`: MVP attestor/challenge/finalize flow with typed payout payload validation and timeout rescue.
 - `PoolRegistry.sol`: allowed FX pool registry.
 - `ProtocolFeeVault.sol`: receives protocol rake.
 
@@ -52,7 +52,7 @@ bun run backend:dev
 
 ## Status
 
-This is an MVP scaffold with passing Foundry coverage for room creation, joins, max-player limits, min-player lock checks, cancellation refunds, commit-reveal, anti-wall rejection, scoring, hook snapshots, round anchoring, typed settlement payloads, rake, prize claims, double-settlement prevention, and payout invariants.
+This is an MVP scaffold with passing Foundry coverage for room creation, joins, max-player limits, min-player lock checks, cancellation refunds, commit-reveal, anti-wall rejection, scoring, hook snapshots, round anchoring, typed settlement payloads, challenge resolution, timeout rescue refunds, rake, prize claims, double-settlement prevention, and payout invariants.
 
 Current hardening references:
 

@@ -18,7 +18,7 @@ The protocol never pays winners from a vault, never quotes uncapped multipliers,
 
 - Uniswap v4 hook: market anchoring and event emission only.
 - Escrow: source of truth for entry funds, refunds, prize claims, and rake.
-- Settlement manager: MVP attestor path with challenge window.
+- Settlement manager: MVP attestor path with challenge window, owner resolution, and timeout rescue to refunds.
 - Backend and Liveblocks: UX and coordination only. They are not trusted for money.
 
 ## Main Risks
@@ -32,6 +32,7 @@ The protocol never pays winners from a vault, never quotes uncapped multipliers,
 - Hook callback surface: `afterInitialize` imports registry approval into hook-local pool state, and swap callbacks check hook-local allowlist state instead of calling the registry on every swap.
 - Round anchoring: round start and settlement require fresh hook snapshots, store anchor and settlement snapshot ids, and final results cannot be submitted until every configured round has ended.
 - Payout over-allocation: settlement payloads bind payout total, protocol fee, roster hash, leaderboard hash, score root, settlement price root, and metadata hash; escrow caps claims to the committed payout total and `claimedPrizes + protocolFee <= escrow`.
+- Stalled settlement: locked or settling rooms can be cancelled for pull refunds after the settlement rescue deadline if no results were finalized.
 - Emergency pause abuse: pause is scoped to new hook swap context and factory room creation; refunds and claims remain available through escrow status.
 
 ## MVP Limitations

@@ -7,7 +7,6 @@ These tasks are deferred from `/autoplan` and should be handled before public pa
 - Repair escrow active roster, leave/rejoin, refund, and room-full accounting.
 - Make `FXBentoSettlementManager` the authoritative settlement path for escrow roots.
 - Replace arbitrary room status writes with a room lifecycle transition table.
-- Add challenge resolution, timeout, adjudication, or refund rescue.
 - Require paid active membership for commit/reveal and prize eligibility.
 - Add invariant tests for `claimed prizes + claimed fees + refundable/current escrow accounting <= token balance`.
 
