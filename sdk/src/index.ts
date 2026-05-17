@@ -1,4 +1,4 @@
-import { encodeAbiParameters, keccak256, parseAbiParameters, type Address, type Hex } from "viem";
+import { encodeAbiParameters, encodeFunctionData, encodePacked, keccak256, parseAbiParameters, type Address, type Hex } from "viem";
 
 export type PoolKey = {
   currency0: Address;
@@ -30,6 +30,31 @@ export type TileSelection = {
   cols: number[];
   chipCount: number;
   clientStateHash: Hex;
+};
+
+export type PayoutRoot = {
+  roomId: bigint;
+  winnerRoot: Hex;
+  rosterHash: Hex;
+  leaderboardHash: Hex;
+  scoreRoot: Hex;
+  settlementPriceRoot: Hex;
+  payoutTotal: bigint;
+  protocolFee: bigint;
+  metadataHash: Hex;
+};
+
+export type FxBentoContracts = {
+  roomFactory: Address;
+  roomEscrow: Address;
+  commitmentManager: Address;
+  settlementManager: Address;
+};
+
+export type PreparedTransaction = {
+  to: Address;
+  data: Hex;
+  value?: bigint;
 };
 
 export const ROOM_STATUS = {
@@ -119,6 +144,38 @@ export function commitmentHash(args: {
   );
 }
 
+export const TILE_COMMITMENT_TYPEHASH = keccak256(
+  encodePacked(["string"], ["TileCommitment(uint256 roomId,uint16 roundIndex,address player,bytes32 commitment)"])
+);
+
+export function commitmentManagerDomainSeparator(args: { chainId: bigint; verifyingContract: Address }): Hex {
+  return keccak256(encodeAbiParameters(parseAbiParameters("uint256,address"), [args.chainId, args.verifyingContract]));
+}
+
+export function tileCommitmentDigest(args: {
+  chainId: bigint;
+  verifyingContract: Address;
+  roomId: bigint;
+  roundIndex: number;
+  player: Address;
+  commitment: Hex;
+}): Hex {
+  const domainSeparator = commitmentManagerDomainSeparator({
+    chainId: args.chainId,
+    verifyingContract: args.verifyingContract
+  });
+  const structHash = keccak256(
+    encodeAbiParameters(parseAbiParameters("bytes32,uint256,uint16,address,bytes32"), [
+      TILE_COMMITMENT_TYPEHASH,
+      args.roomId,
+      args.roundIndex,
+      args.player,
+      args.commitment
+    ])
+  );
+  return keccak256(encodePacked(["bytes2", "bytes32", "bytes32"], ["0x1901", domainSeparator, structHash]));
+}
+
 export function roomFlowActions(room: RoomLifecycleView, now: bigint): RoomFlowActions {
   const filled = room.activePlayers >= room.minPlayers;
   const startReached = now >= room.startTime;
@@ -137,6 +194,269 @@ export function roomFlowActions(room: RoomLifecycleView, now: bigint): RoomFlowA
       (room.status === ROOM_STATUS.Locked || room.status === ROOM_STATUS.Settling) &&
       room.settlementRescueDeadline !== undefined &&
       now >= room.settlementRescueDeadline
+  };
+}
+
+const roomFactoryAbi = [
+  {
+    type: "function",
+    name: "createRoom",
+    stateMutability: "nonpayable",
+    inputs: [
+      {
+        name: "config",
+        type: "tuple",
+        components: [
+          {
+            name: "poolKey",
+            type: "tuple",
+            components: [
+              { name: "currency0", type: "address" },
+              { name: "currency1", type: "address" },
+              { name: "fee", type: "uint24" },
+              { name: "tickSpacing", type: "int24" },
+              { name: "hooks", type: "address" }
+            ]
+          },
+          { name: "entryToken", type: "address" },
+          { name: "entryFee", type: "uint256" },
+          { name: "minPlayers", type: "uint16" },
+          { name: "maxPlayers", type: "uint16" },
+          { name: "rounds", type: "uint16" },
+          { name: "roundDuration", type: "uint32" },
+          { name: "lockBuffer", type: "uint32" },
+          { name: "startTime", type: "uint64" },
+          { name: "rakeBps", type: "uint16" },
+          { name: "payoutBps", type: "uint16[]" },
+          { name: "gridConfigHash", type: "bytes32" },
+          { name: "isPrivate", type: "bool" },
+          { name: "inviteCodeHash", type: "bytes32" }
+        ]
+      }
+    ],
+    outputs: [{ name: "roomId", type: "uint256" }]
+  }
+] as const;
+
+const roomEscrowAbi = [
+  { type: "function", name: "joinRoom", stateMutability: "nonpayable", inputs: [{ name: "roomId", type: "uint256" }], outputs: [] },
+  { type: "function", name: "leaveRoom", stateMutability: "nonpayable", inputs: [{ name: "roomId", type: "uint256" }], outputs: [] },
+  { type: "function", name: "cancelRoom", stateMutability: "nonpayable", inputs: [{ name: "roomId", type: "uint256" }], outputs: [] },
+  { type: "function", name: "refund", stateMutability: "nonpayable", inputs: [{ name: "roomId", type: "uint256" }], outputs: [] },
+  { type: "function", name: "lockRoom", stateMutability: "nonpayable", inputs: [{ name: "roomId", type: "uint256" }], outputs: [] },
+  {
+    type: "function",
+    name: "claimPrize",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "roomId", type: "uint256" },
+      { name: "amount", type: "uint256" },
+      { name: "proof", type: "bytes32[]" }
+    ],
+    outputs: []
+  },
+  { type: "function", name: "claimProtocolFee", stateMutability: "nonpayable", inputs: [{ name: "roomId", type: "uint256" }], outputs: [] }
+] as const;
+
+const commitmentManagerAbi = [
+  {
+    type: "function",
+    name: "commitSelection",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "roomId", type: "uint256" },
+      { name: "roundIndex", type: "uint16" },
+      { name: "commitment", type: "bytes32" }
+    ],
+    outputs: []
+  },
+  {
+    type: "function",
+    name: "commitSelectionFor",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "roomId", type: "uint256" },
+      { name: "roundIndex", type: "uint16" },
+      { name: "player", type: "address" },
+      { name: "commitment", type: "bytes32" },
+      { name: "signature", type: "bytes" }
+    ],
+    outputs: []
+  },
+  {
+    type: "function",
+    name: "revealSelection",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "roomId", type: "uint256" },
+      { name: "roundIndex", type: "uint16" },
+      {
+        name: "selection",
+        type: "tuple",
+        components: [
+          { name: "rows", type: "uint8[]" },
+          { name: "cols", type: "uint8[]" },
+          { name: "chipCount", type: "uint8" },
+          { name: "clientStateHash", type: "bytes32" }
+        ]
+      },
+      { name: "nonce", type: "bytes32" }
+    ],
+    outputs: []
+  }
+] as const;
+
+const settlementManagerAbi = [
+  {
+    type: "function",
+    name: "submitResults",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "roomId", type: "uint256" },
+      {
+        name: "payout",
+        type: "tuple",
+        components: [
+          { name: "roomId", type: "uint256" },
+          { name: "winnerRoot", type: "bytes32" },
+          { name: "rosterHash", type: "bytes32" },
+          { name: "leaderboardHash", type: "bytes32" },
+          { name: "scoreRoot", type: "bytes32" },
+          { name: "settlementPriceRoot", type: "bytes32" },
+          { name: "payoutTotal", type: "uint256" },
+          { name: "protocolFee", type: "uint256" },
+          { name: "metadataHash", type: "bytes32" }
+        ]
+      },
+      { name: "metadataURI", type: "string" },
+      { name: "attestation", type: "bytes" }
+    ],
+    outputs: []
+  },
+  { type: "function", name: "challengeResults", stateMutability: "nonpayable", inputs: [{ name: "roomId", type: "uint256" }, { name: "proof", type: "bytes" }], outputs: [] },
+  { type: "function", name: "finalizeResults", stateMutability: "nonpayable", inputs: [{ name: "roomId", type: "uint256" }], outputs: [] },
+  { type: "function", name: "rescueFailedSettlement", stateMutability: "nonpayable", inputs: [{ name: "roomId", type: "uint256" }], outputs: [] }
+] as const;
+
+export function encodeCreateRoom(config: RoomConfig): Hex {
+  return encodeFunctionData({ abi: roomFactoryAbi, functionName: "createRoom", args: [config] });
+}
+
+export function prepareCreateRoomTx(contracts: FxBentoContracts, config: RoomConfig): PreparedTransaction {
+  return { to: contracts.roomFactory, data: encodeCreateRoom(config) };
+}
+
+export function prepareJoinRoomTx(contracts: FxBentoContracts, roomId: bigint): PreparedTransaction {
+  return { to: contracts.roomEscrow, data: encodeFunctionData({ abi: roomEscrowAbi, functionName: "joinRoom", args: [roomId] }) };
+}
+
+export function prepareLeaveRoomTx(contracts: FxBentoContracts, roomId: bigint): PreparedTransaction {
+  return { to: contracts.roomEscrow, data: encodeFunctionData({ abi: roomEscrowAbi, functionName: "leaveRoom", args: [roomId] }) };
+}
+
+export function prepareCancelRoomTx(contracts: FxBentoContracts, roomId: bigint): PreparedTransaction {
+  return { to: contracts.roomEscrow, data: encodeFunctionData({ abi: roomEscrowAbi, functionName: "cancelRoom", args: [roomId] }) };
+}
+
+export function prepareRefundTx(contracts: FxBentoContracts, roomId: bigint): PreparedTransaction {
+  return { to: contracts.roomEscrow, data: encodeFunctionData({ abi: roomEscrowAbi, functionName: "refund", args: [roomId] }) };
+}
+
+export function prepareLockRoomTx(contracts: FxBentoContracts, roomId: bigint): PreparedTransaction {
+  return { to: contracts.roomEscrow, data: encodeFunctionData({ abi: roomEscrowAbi, functionName: "lockRoom", args: [roomId] }) };
+}
+
+export function prepareCommitSelectionTx(
+  contracts: FxBentoContracts,
+  args: { roomId: bigint; roundIndex: number; commitment: Hex }
+): PreparedTransaction {
+  return {
+    to: contracts.commitmentManager,
+    data: encodeFunctionData({
+      abi: commitmentManagerAbi,
+      functionName: "commitSelection",
+      args: [args.roomId, args.roundIndex, args.commitment]
+    })
+  };
+}
+
+export function prepareBatchedCommitSelectionTx(
+  contracts: FxBentoContracts,
+  args: { roomId: bigint; roundIndex: number; player: Address; commitment: Hex; signature: Hex }
+): PreparedTransaction {
+  return {
+    to: contracts.commitmentManager,
+    data: encodeFunctionData({
+      abi: commitmentManagerAbi,
+      functionName: "commitSelectionFor",
+      args: [args.roomId, args.roundIndex, args.player, args.commitment, args.signature]
+    })
+  };
+}
+
+export function prepareRevealSelectionTx(
+  contracts: FxBentoContracts,
+  args: { roomId: bigint; roundIndex: number; selection: TileSelection; nonce: Hex }
+): PreparedTransaction {
+  return {
+    to: contracts.commitmentManager,
+    data: encodeFunctionData({
+      abi: commitmentManagerAbi,
+      functionName: "revealSelection",
+      args: [args.roomId, args.roundIndex, args.selection, args.nonce]
+    })
+  };
+}
+
+export function prepareClaimPrizeTx(
+  contracts: FxBentoContracts,
+  args: { roomId: bigint; amount: bigint; proof: Hex[] }
+): PreparedTransaction {
+  return {
+    to: contracts.roomEscrow,
+    data: encodeFunctionData({ abi: roomEscrowAbi, functionName: "claimPrize", args: [args.roomId, args.amount, args.proof] })
+  };
+}
+
+export function prepareClaimProtocolFeeTx(contracts: FxBentoContracts, roomId: bigint): PreparedTransaction {
+  return {
+    to: contracts.roomEscrow,
+    data: encodeFunctionData({ abi: roomEscrowAbi, functionName: "claimProtocolFee", args: [roomId] })
+  };
+}
+
+export function prepareSubmitResultsTx(
+  contracts: FxBentoContracts,
+  args: { roomId: bigint; payout: PayoutRoot; metadataURI: string; attestation: Hex }
+): PreparedTransaction {
+  return {
+    to: contracts.settlementManager,
+    data: encodeFunctionData({
+      abi: settlementManagerAbi,
+      functionName: "submitResults",
+      args: [args.roomId, args.payout, args.metadataURI, args.attestation]
+    })
+  };
+}
+
+export function prepareChallengeResultsTx(contracts: FxBentoContracts, args: { roomId: bigint; proof: Hex }): PreparedTransaction {
+  return {
+    to: contracts.settlementManager,
+    data: encodeFunctionData({ abi: settlementManagerAbi, functionName: "challengeResults", args: [args.roomId, args.proof] })
+  };
+}
+
+export function prepareFinalizeResultsTx(contracts: FxBentoContracts, roomId: bigint): PreparedTransaction {
+  return {
+    to: contracts.settlementManager,
+    data: encodeFunctionData({ abi: settlementManagerAbi, functionName: "finalizeResults", args: [roomId] })
+  };
+}
+
+export function prepareRescueFailedSettlementTx(contracts: FxBentoContracts, roomId: bigint): PreparedTransaction {
+  return {
+    to: contracts.settlementManager,
+    data: encodeFunctionData({ abi: settlementManagerAbi, functionName: "rescueFailedSettlement", args: [roomId] })
   };
 }
 

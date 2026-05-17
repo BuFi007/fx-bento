@@ -60,6 +60,7 @@ Current hardening references:
 - `docs/architecture-reference.md`: full validation-first architecture plan.
 - `docs/hook-deployment.md`: v4 permission-bit and deployment notes.
 - `docs/p0-validation-qa.md`: room-first QA matrix across contracts, SDK assumptions, and user-visible failure paths.
+- `docs/p1-backend-sdk.md`: contract-aligned backend coordinator and SDK transaction helper notes.
 - `docs/threat-model.md`: current trust boundaries and limitations.
 - `TODOS.md`: P0/P1 implementation queue.
 - `/Users/criptopoeta/.gstack/projects/BuFi007-fx-bento/main-autoplan-test-plan-20260516-205300.md`: expanded validation and invariant test plan.

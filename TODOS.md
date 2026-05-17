@@ -31,18 +31,28 @@ Product validation gates before paid public rooms:
 
 ## P1 Backend / Realtime
 
-- Treat backend room state as event-derived or explicitly mock-only.
-- Add wallet auth before issuing Liveblocks tokens.
-- Verify on-chain room membership/status before granting room access.
-- Make commit/reveal endpoints relay-only, typed, idempotent, and signature-verified.
+Complete in the MVP scaffold:
+
+- Backend room state is explicitly mock/indexer-facing, not money-authoritative.
+- Liveblocks auth requires active room membership unless spectator mode is requested.
+- Commit/reveal endpoints are relay-only, idempotent, room-status gated, and commitment signatures can be verified against the Solidity digest.
+
+Remaining P1 production work:
+
+- Treat backend room state as event-derived from contract logs.
+- Verify on-chain room membership/status before granting room access in production mode.
 - Persist commitment, reveal, settlement, and leaderboard inputs.
 - Add typed EIP-712 result attestation schema.
 
 ## P1 Frontend / SDK
 
+- SDK transaction builders now cover create/join/leave/cancel/refund/lock/commit/reveal/claim/settlement/challenge/rescue.
+- SDK state helpers now expose room-status CTA gating.
+
+Remaining P1 production work:
+
 - Implement full UI state matrix from the architecture reference.
 - Convert lobby to room-first hierarchy.
 - Implement board-first mobile layout with sticky timer and commit/reveal controls.
 - Add replayable result explanation: selected tiles, price path, hit/miss, multiplier, coverage penalty, score delta, rank, prize.
-- Add SDK transaction builders for room create/join/refund/commit/reveal/claim.
-- Add SDK state helpers for room, market, settlement, Liveblocks, and wallet states.
+- Add SDK market, settlement, Liveblocks, and wallet state helpers.
