@@ -31,7 +31,8 @@ Before attaching the hook to a real v4 pool:
 3. Confirm all callbacks are called only by the configured `PoolManager`.
 4. Confirm `beforeSwap` returns `BeforeSwapDeltaLibrary.ZERO_DELTA` and zero fee override.
 5. Confirm `afterSwap` only records the `StateLibrary.getSlot0` snapshot and emits market events.
-6. Confirm disabled callbacks revert and no return-delta flags are enabled.
+6. Confirm swap callbacks only accept pools cached by `afterInitialize` or explicitly enabled by the hook owner.
+7. Confirm disabled callbacks revert and no return-delta flags are enabled.
 
 `test/FXBentoHookV4Integration.t.sol` covers the local `PoolManager` path with a permissioned hook address, real pool initialization, real liquidity modification, and a real swap. It does not replace the HookMiner/CREATE2 deployment script needed for testnet and production deployment.
 

@@ -29,6 +29,7 @@ The protocol never pays winners from a vault, never quotes uncapped multipliers,
 - Late selection changes: commit must happen before `lockTime`; reveal must match commitment after lock.
 - Wall/spam patterns: scoring and commitment validation reject too many tiles, too many same-row tiles, horizontal chains, duplicate tiles, and full rows/columns.
 - Hook overreach: hook does not custody player funds or settle winners, implements canonical v4-core `IHooks`, uses no return-delta permissions, and callback-style snapshot writes are restricted to the configured PoolManager address.
+- Hook callback surface: `afterInitialize` imports registry approval into hook-local pool state, and swap callbacks check hook-local allowlist state instead of calling the registry on every swap.
 - Emergency pause abuse: pause is scoped to new hook swap context and factory room creation; refunds and claims remain available through escrow status.
 
 ## MVP Limitations

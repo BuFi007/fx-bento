@@ -31,6 +31,7 @@ contract FXBentoHook is IHooks, Pausable {
     ProtocolFeeVault public feeVault;
     mapping(FXPoolId => PoolSnapshot[RING_SIZE]) private snapshots;
     mapping(FXPoolId => uint256) public snapshotCount;
+    mapping(FXPoolId => bool) public hookPoolAllowed;
 
     event PoolInitialized(FXPoolId indexed poolId, address indexed currency0, address indexed currency1);
     event FXBentoMarketSnapshot(
@@ -38,6 +39,7 @@ contract FXBentoHook is IHooks, Pausable {
     );
     event PreSwapContext(FXPoolId indexed poolId, address indexed sender);
     event ArcadeFeeVaultUpdated(address indexed feeVault);
+    event HookPoolAllowedUpdated(FXPoolId indexed poolId, bool allowed);
 
     modifier onlyPoolManager() {
         require(msg.sender == address(poolManager), "NOT_POOL_MANAGER");
@@ -88,6 +90,12 @@ contract FXBentoHook is IHooks, Pausable {
         emit ArcadeFeeVaultUpdated(address(feeVault_));
     }
 
+    function setHookPoolAllowed(FXPoolId poolId, bool allowed) external onlyOwner {
+        if (allowed) require(registry.isAllowed(poolId), "POOL_NOT_ALLOWED");
+        hookPoolAllowed[poolId] = allowed;
+        emit HookPoolAllowedUpdated(poolId, allowed);
+    }
+
     function validatePool(FXPoolKey calldata key) external view returns (bool) {
         return registry.isAllowed(FXPoolIdLibrary.toId(key));
     }
@@ -114,6 +122,7 @@ contract FXBentoHook is IHooks, Pausable {
     {
         FXPoolId poolId = _toFXPoolId(key);
         require(registry.isAllowed(poolId), "POOL_NOT_ALLOWED");
+        _setHookPoolAllowed(poolId, true);
         _record(poolId, sqrtPriceX96, tick);
         emit PoolInitialized(poolId, Currency.unwrap(key.currency0), Currency.unwrap(key.currency1));
         return IHooks.afterInitialize.selector;
@@ -167,7 +176,7 @@ contract FXBentoHook is IHooks, Pausable {
         returns (bytes4, BeforeSwapDelta, uint24)
     {
         FXPoolId poolId = _toFXPoolId(key);
-        require(registry.isAllowed(poolId), "POOL_NOT_ALLOWED");
+        require(hookPoolAllowed[poolId], "POOL_NOT_ALLOWED");
         emit PreSwapContext(poolId, sender);
         return (IHooks.beforeSwap.selector, BeforeSwapDeltaLibrary.ZERO_DELTA, 0);
     }
@@ -180,7 +189,7 @@ contract FXBentoHook is IHooks, Pausable {
         returns (bytes4, int128)
     {
         FXPoolId poolId = _toFXPoolId(key);
-        require(registry.isAllowed(poolId), "POOL_NOT_ALLOWED");
+        require(hookPoolAllowed[poolId], "POOL_NOT_ALLOWED");
         V4PoolId v4PoolId = key.toId();
         (uint160 sqrtPriceX96, int24 tick,,) = StateLibrary.getSlot0(poolManager, v4PoolId);
         _record(poolId, sqrtPriceX96, tick);
@@ -244,6 +253,12 @@ contract FXBentoHook is IHooks, Pausable {
         snapshots[poolId][count % RING_SIZE] = PoolSnapshot(sqrtPriceX96, tick, uint64(block.timestamp), vol);
         snapshotCount[poolId] = count + 1;
         emit FXBentoMarketSnapshot(poolId, sqrtPriceX96, tick, uint64(block.timestamp), vol);
+    }
+
+    function _setHookPoolAllowed(FXPoolId poolId, bool allowed) internal {
+        if (hookPoolAllowed[poolId] == allowed) return;
+        hookPoolAllowed[poolId] = allowed;
+        emit HookPoolAllowedUpdated(poolId, allowed);
     }
 
     function _toFXPoolId(V4PoolKey calldata key) internal pure returns (FXPoolId) {

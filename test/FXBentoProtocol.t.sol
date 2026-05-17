@@ -303,6 +303,7 @@ contract FXBentoProtocolTest is Test {
         IPoolManager.SwapParams memory params;
         vm.startPrank(address(poolManager));
         hook.afterInitialize(address(this), v4Key, 1 << 96, 100);
+        assertTrue(hook.hookPoolAllowed(key.toId()));
         hook.beforeSwap(address(this), v4Key, params, "");
         poolManager.setSlot0(uint160(1 << 96), 130);
         hook.afterSwap(address(this), v4Key, params, BalanceDelta.wrap(0), "");
@@ -316,6 +317,25 @@ contract FXBentoProtocolTest is Test {
         uint160 expected = Hooks.AFTER_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG;
         assertEq(hook.hookPermissionBitmap(), expected);
         assertTrue(hook.hookAddressHasPermissions(address(uint160(expected))));
+    }
+
+    function testHookRejectsSwapBeforePoolIsCached() public {
+        IPoolManager.SwapParams memory params;
+        vm.prank(address(poolManager));
+        vm.expectRevert("POOL_NOT_ALLOWED");
+        hook.beforeSwap(address(this), v4Key, params, "");
+    }
+
+    function testHookOwnerCanDisableCachedPool() public {
+        IPoolManager.SwapParams memory params;
+        vm.prank(address(poolManager));
+        hook.afterInitialize(address(this), v4Key, 1 << 96, 100);
+
+        hook.setHookPoolAllowed(key.toId(), false);
+
+        vm.prank(address(poolManager));
+        vm.expectRevert("POOL_NOT_ALLOWED");
+        hook.beforeSwap(address(this), v4Key, params, "");
     }
 
     function testHookRejectsSpoofedSnapshots() public {
