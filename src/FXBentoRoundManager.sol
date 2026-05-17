@@ -42,10 +42,15 @@ contract FXBentoRoundManager is AccessManaged {
         require(roundIndex < room.rounds, "ROUND_INDEX");
         require(gridConfigHash == room.gridConfigHash, "GRID_MISMATCH");
         require(startTime >= room.startTime, "ROUND_TOO_EARLY");
+        require(block.timestamp >= startTime, "ROUND_START_PENDING");
+        require(block.timestamp < lockTime, "ROUND_LOCK_PASSED");
         require(lockTime > startTime && endTime > lockTime, "BAD_ROUND_TIME");
         require(endTime - startTime == room.roundDuration, "BAD_DURATION");
         require(endTime - lockTime == room.lockBuffer, "BAD_LOCK_BUFFER");
         require(rounds[roomId][roundIndex].status == 0, "ROUND_EXISTS");
+        if (roundIndex != 0) {
+            require(rounds[roomId][roundIndex - 1].status == 2, "PREVIOUS_ROUND_ACTIVE");
+        }
 
         FXBentoHook.PoolSnapshot memory snapshot = _freshSnapshot(room.poolId);
         int256 anchorPrice = int256(uint256(snapshot.sqrtPriceX96));

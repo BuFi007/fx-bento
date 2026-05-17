@@ -11,3 +11,5 @@ node_modules/
 
 # Dotenv file
 .env
+.vercel
+.env*.local

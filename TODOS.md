@@ -1,6 +1,6 @@
-# FX Bento Implementation TODOs
+# FX Bento Protocol TODOs
 
-These tasks are deferred from `/autoplan` and should be handled before public paid-room usage.
+This repo is protocol-only. Keep application, backend, indexer, Liveblocks, and frontend work out of this repository.
 
 ## P0 Contract Safety
 
@@ -19,47 +19,31 @@ No open P0 contract-safety tasks remain in this file.
 Complete in the MVP scaffold:
 
 - Room-first contract QA matrix for failed start, cancel, refund, settle, claim, challenge, and rescue paths.
-- SDK room-status assumptions and CTA gating helper.
 - Invariant coverage for active roster accounting, outstanding escrow, prize claims, protocol fee claims, and no token creation.
+- v4 hook permission-bit validation and real PoolManager snapshot integration tests.
 
-Product validation gates before paid public rooms:
+Before public paid-room usage:
 
-- Build a room-first validation lobby and board-first game loop.
-- Validate room fill, score comprehension, refund comprehension, and replay/rematch interest.
-- Decide whether first validation mode includes free-play rooms before paid testnet rooms.
+- Complete external security review.
+- Add deployment runbooks for hook address mining, deployment, verification, and role setup.
+- Add chain-specific pool/oracle allowlist review.
 - Add compliance review for wording, entry/prize mechanics, jurisdictional exposure, and access controls.
 
-## P1 Backend / Realtime
+## P1 Protocol Work
 
-Complete in the MVP scaffold:
+- Expand settlement attestation to typed EIP-712 signatures.
+- Add multi-attestor settlement and challenge quorum rules.
+- Add oracle fallback policy for Pyth, Chainlink, RedStone, and Uniswap v4 TWAP.
+- Add deployment scripts for each supported testnet/mainnet target.
+- Add gas reports for common room lifecycle paths.
+- Add explicit pause/rescue runbooks.
+- Add NatSpec coverage for all external methods and state-transition errors.
 
-- Backend room state is explicitly mock/indexer-facing, not money-authoritative.
-- Backend can ingest contract-style room lifecycle events and persist replay/idempotency state locally.
-- Backend can poll configured contract logs with viem and feed the same event-derived state path.
-- Liveblocks auth requires active room membership unless spectator mode is requested.
-- Commit/reveal endpoints are relay-only, idempotent, room-status gated, and commitment signatures can be verified against the Solidity digest.
+## Out Of Scope For This Repo
 
-Remaining P1 production work:
-
-- Move poller state from local JSON to production persistence.
-- Add deployment-specific event address configuration.
-- Verify on-chain room membership/status before granting room access in production mode.
-- Persist commitment, reveal, settlement, and leaderboard inputs.
-- Add typed EIP-712 result attestation schema.
-
-## P1 Frontend / SDK
-
-- SDK transaction builders now cover create/join/leave/cancel/refund/lock/commit/reveal/claim/settlement/challenge/rescue.
-- SDK state helpers now expose room-status CTA gating.
-- Frontend lobby and room surfaces now consume backend room state and `roomFlowActions(...)` for join/refund/settlement/challenge/claim rendering.
-- Frontend join, refund, commit, and claim CTAs now use wallet-backed viem transaction requests from SDK tx builders when contract addresses and contract room ids are available.
-- Wallet CTAs now detect wrong chain, request chain switching, preflight ERC20 balance/allowance before join, persist commit nonce/selection for reveal, and prefer indexed claim allocations from room state.
-- Low entry-token allowance now exposes an explicit approve CTA backed by an SDK ERC20 approve transaction builder.
-- SDK transaction builders and room-state helpers now have Bun tests included in `bun run verify`.
-
-Remaining P1 production work:
-
-- Implement full UI state matrix from the architecture reference.
-- Expand board-first mobile layout with sticky timer and commit/reveal controls.
-- Add replayable result explanation: selected tiles, price path, hit/miss, multiplier, coverage penalty, score delta, rank, prize.
-- Add SDK market, settlement, Liveblocks, wallet state, and claim-allocation helpers beyond the current component-level wiring.
+- Backend coordinator.
+- Indexer/Ponder services.
+- Liveblocks integration.
+- Frontend UI.
+- Wallet CTA handling.
+- TypeScript SDK packages.

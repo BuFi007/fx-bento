@@ -19,7 +19,7 @@ The protocol never pays winners from a vault, never quotes uncapped multipliers,
 - Uniswap v4 hook: market anchoring and event emission only.
 - Escrow: source of truth for entry funds, refunds, prize claims, and rake.
 - Settlement manager: MVP attestor path with challenge window, owner resolution, and timeout rescue to refunds.
-- Backend and Liveblocks: UX and coordination only. They are not trusted for money.
+- Offchain app/backend/Liveblocks systems: UX and coordination only. They are not trusted for money and are out of scope for this Solidity repo.
 
 ## Main Risks
 
@@ -40,4 +40,4 @@ The protocol never pays winners from a vault, never quotes uncapped multipliers,
 - The hook uses canonical v4-core interfaces and reads pool state through `StateLibrary`, with CREATE2 planning scripts for address-bit mining.
 - Settlement attestation is authorized for MVP; decentralization requires multiple attestors or optimistic dispute proofs.
 - Oracle freshness checks are enforced for hook snapshot based round anchoring; external oracle quorum and fallback logic are not implemented yet.
-- Frontend and backend are product skeletons, not production wallet flows.
+- App, backend, indexer, Liveblocks, and wallet flows are implemented in separate repositories and must treat this protocol as the money source of truth.

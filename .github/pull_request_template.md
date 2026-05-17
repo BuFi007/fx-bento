@@ -7,11 +7,10 @@
 - [ ] Paid-room safety is not overclaimed if code is still scaffold/mock.
 - [ ] Room lifecycle transitions remain explicit.
 - [ ] Prize/refund/fee claims remain pull-based.
-- [ ] Backend or Liveblocks state is not treated as money source of truth.
+- [ ] Offchain app/backend assumptions are documented outside this Solidity repo when relevant.
 
 ## Verification
 
 - [ ] `forge fmt --check`
 - [ ] `forge build`
 - [ ] `forge test`
-- [ ] `bun run typecheck`

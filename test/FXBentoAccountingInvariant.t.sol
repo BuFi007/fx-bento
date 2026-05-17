@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {PoolRegistry} from "../src/PoolRegistry.sol";
 import {ProtocolFeeVault} from "../src/ProtocolFeeVault.sol";
-import {FXBentoHook} from "../src/FXBentoHook.sol";
+import {FXBentoHookHarness} from "./harnesses/FXBentoHookHarness.sol";
 import {FXBentoRoomFactory} from "../src/FXBentoRoomFactory.sol";
 import {FXBentoRoomEscrow} from "../src/FXBentoRoomEscrow.sol";
 import {FXBentoRoundManager} from "../src/FXBentoRoundManager.sol";
@@ -36,7 +36,7 @@ contract FXBentoAccountingHandler is Test {
     FXBentoRoomEscrow public escrow;
     FXBentoRoundManager public rounds;
     FXBentoSettlementManager public settlement;
-    FXBentoHook public hook;
+    FXBentoHookHarness public hook;
     PoolKey public key;
     uint256[] public roomIds;
 
@@ -46,7 +46,7 @@ contract FXBentoAccountingHandler is Test {
         FXBentoRoomEscrow escrow_,
         FXBentoRoundManager rounds_,
         FXBentoSettlementManager settlement_,
-        FXBentoHook hook_,
+        FXBentoHookHarness hook_,
         PoolKey memory key_,
         address[3] memory players_
     ) {
@@ -242,7 +242,7 @@ contract FXBentoAccountingInvariantTest is StdInvariant, Test {
     AccountingMockV4PoolManager poolManager;
     PoolRegistry registry;
     ProtocolFeeVault vault;
-    FXBentoHook hook;
+    FXBentoHookHarness hook;
     FXBentoRoomFactory factory;
     FXBentoRoomEscrow escrow;
     FXBentoRoundManager rounds;
@@ -261,6 +261,7 @@ contract FXBentoAccountingInvariantTest is StdInvariant, Test {
         factory = new FXBentoRoomFactory(owner, registry);
         escrow = new FXBentoRoomEscrow(owner, factory, vault);
         factory.setEscrow(address(escrow));
+        vault.setFeeNotifier(address(escrow));
         factory.setEntryToken(address(usdc), true);
         rounds = new FXBentoRoundManager(owner, factory, hook);
         settlement = new FXBentoSettlementManager(owner, factory, escrow);
@@ -349,14 +350,14 @@ contract FXBentoAccountingInvariantTest is StdInvariant, Test {
         selectors[9] = FXBentoAccountingHandler.rescue.selector;
     }
 
-    function _deployHookAtPermissionedAddress() internal returns (FXBentoHook deployedHook) {
+    function _deployHookAtPermissionedAddress() internal returns (FXBentoHookHarness deployedHook) {
         address hookAddress =
             address(uint160(Hooks.AFTER_INITIALIZE_FLAG | Hooks.BEFORE_SWAP_FLAG | Hooks.AFTER_SWAP_FLAG));
         deployCodeTo(
-            "FXBentoHook.sol:FXBentoHook",
+            "FXBentoHookHarness.sol:FXBentoHookHarness",
             abi.encode(owner, IPoolManager(address(poolManager)), registry, vault),
             hookAddress
         );
-        deployedHook = FXBentoHook(hookAddress);
+        deployedHook = FXBentoHookHarness(hookAddress);
     }
 }

@@ -7,7 +7,7 @@ This pass validates the room lifecycle from the player's point of view and maps 
 | Flow | Contract source of truth | Clean failure path | Coverage |
 | --- | --- | --- | --- |
 | Create room | `FXBentoRoomFactory.createRoom` | Invalid pool, token, rake, player limits, payout split, start time, or timing config reverts before a room id exists. | Unit tests for valid and invalid configs. |
-| Join lobby | `FXBentoRoomEscrow.joinRoom` | Full rooms, non-lobby rooms, and duplicate joins revert. The backend must treat join intent as advisory until entry transfer lands. | Unit and invariant tests. |
+| Join lobby | `FXBentoRoomEscrow.joinRoom` | Full rooms, non-lobby rooms, and duplicate joins revert. A player is only in the room after entry transfer lands and `RoomJoined` is emitted. | Unit and invariant tests. |
 | Leave lobby | `FXBentoRoomEscrow.leaveRoom` | Leaving after start reverts; lobby leave returns entry fee and frees the active seat. | Unit and invariant tests. |
 | Failed start | `FXBentoRoomEscrow.cancelRoom` | Before `startTime` cancellation reverts. After `startTime`, only below-min rooms can cancel. | Unit tests. |
 | Refund | `FXBentoRoomEscrow.refund` | Refunds only work after `Cancelled`; each paid active player can refund once. Refund clears active membership and decrements room escrow accounting. | Unit and invariant tests. |
@@ -20,14 +20,13 @@ This pass validates the room lifecycle from the player's point of view and maps 
 | Claim prize | `FXBentoRoomEscrow.claimPrize` | Claims before settlement, non-player claims, bad Merkle proofs, double claims, and over-total claims revert without mutating claim state. | Unit tests and invariants. |
 | Claim protocol fee | `FXBentoRoomEscrow.claimProtocolFee` | Fee claim before settlement, double claim, or payout overflow reverts; fee is pull-based into `ProtocolFeeVault`. | Unit and invariant tests. |
 
-## SDK / Backend Assumptions
+## Offchain Integration Assumptions
 
 - Room status values are numeric contract state: `0 Lobby`, `1 Locked`, `2 Settling`, `3 Settled`, `4 Cancelled`.
-- Liveblocks and backend state are UX mirrors only. They must not grant money movement or settlement authority.
-- A backend join intent does not mean the player is in the room. The player is active only after `RoomJoined` and while `joined == true && refunded == false`.
-- The SDK `roomFlowActions` helper intentionally mirrors contract state gates for user-visible CTAs.
-- Commit/reveal endpoints should relay typed user intent and reject requests when `canCommitOrReveal` is false from indexed onchain state.
-- Claim and refund buttons should be driven by `Cancelled` and `Settled` states, not by backend room labels.
+- Liveblocks, backend state, and UI state are UX mirrors only. They must not grant money movement or settlement authority.
+- A join intent does not mean the player is in the room. The player is active only after `RoomJoined` and while `joined == true && refunded == false`.
+- Commit/reveal relayers should relay typed user intent and reject requests when `canPlay(roomId, player)` is false from indexed onchain state.
+- Claim and refund buttons should be driven by `Cancelled` and `Settled` contract states, not by offchain room labels.
 
 ## Remaining Product Validation Gates
 
