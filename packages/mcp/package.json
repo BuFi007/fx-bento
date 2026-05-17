@@ -1,0 +1,16 @@
+{
+  "name": "@bufinance/fx-bento-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bufinance/fx-bento-liveblocks": "workspace:*",
+    "@bufinance/fx-bento-ponder": "workspace:*",
+    "@bufinance/fx-bento-shared-types": "workspace:*",
+    "zod": "^3.25.76"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@bufinance/fx-bento-indexer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "PONDER_PGLITE_DIR=${PONDER_PGLITE_DIR:-.ponder/pglite} ponder dev --port ${PONDER_PORT:-42069}",
+    "start": "ponder start",
+    "codegen": "ponder codegen",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bufinance/fx-bento-contracts": "workspace:*",
+    "@bufinance/fx-bento-ponder": "workspace:*",
+    "hono": "^4.12.7",
+    "ponder": "^0.16.6",
+    "viem": "^2.31.0"
+  }
+}

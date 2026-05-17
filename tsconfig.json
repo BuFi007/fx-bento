@@ -8,7 +8,35 @@
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
-    "noEmit": true
+    "noEmit": true,
+    "baseUrl": ".",
+    "types": ["bun", "node"],
+    "paths": {
+      "@bufinance/fx-bento-auth": ["packages/auth/src/index.ts"],
+      "@bufinance/fx-bento-contracts": ["packages/contracts/src/index.ts"],
+      "@bufinance/fx-bento-db": ["packages/db/src/index.ts"],
+      "@bufinance/fx-bento-env": ["packages/env/src/index.ts"],
+      "@bufinance/fx-bento-game": ["packages/fx-bento/src/index.ts"],
+      "@bufinance/fx-bento-fx-telarana": ["packages/fx-telarana/src/index.ts"],
+      "@bufinance/fx-bento-liveblocks": ["packages/liveblocks/src/index.ts"],
+      "@bufinance/fx-bento-logger": ["packages/logger/src/index.ts"],
+      "@bufinance/fx-bento-market-data": ["packages/market-data/src/index.ts"],
+      "@bufinance/fx-bento-mcp": ["packages/mcp/src/index.ts"],
+      "@bufinance/fx-bento-perps": ["packages/perps/src/index.ts"],
+      "@bufinance/fx-bento-ponder": ["packages/ponder/src/index.ts"],
+      "@bufinance/fx-bento-shared-types": ["packages/shared-types/src/index.ts"],
+      "@bufinance/fx-bento-ui": ["packages/ui/src/index.tsx"],
+      "@bufinance/fx-bento-x402": ["packages/x402/src/index.ts"]
+    }
   },
-  "include": ["sdk/src/**/*.ts", "backend/src/**/*.ts", "frontend/src/**/*.tsx"]
+  "include": [
+    "apps/**/*.ts",
+    "apps/**/*.tsx",
+    "backend/src/**/*.ts",
+    "frontend/src/**/*.tsx",
+    "packages/**/*.ts",
+    "packages/**/*.tsx",
+    "sdk/src/**/*.ts"
+  ],
+  "exclude": ["lib/forge-std", "node_modules"]
 }

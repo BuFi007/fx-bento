@@ -1,24 +1,43 @@
 {
-  "name": "fx-bento-arcade",
+  "name": "@bufinance/fx-bento",
   "private": true,
   "type": "module",
+  "packageManager": "bun@1.3.10",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "test": "forge test",
+    "dev": "turbo run dev --filter=@bufinance/fx-bento-api",
+    "dev:api": "bun run --cwd apps/api dev",
+    "dev:ponder": "bun run --cwd apps/ponder dev",
+    "dev:worker": "bun run --cwd apps/worker dev",
+    "test": "forge test && bun run test:ts",
+    "test:anvil": "bun test apps/api/src/anvil-lifecycle.test.ts",
+    "test:contracts": "forge test",
+    "test:ts": "bun test apps packages",
+    "smoke:postgres": "FX_BENTO_RUN_DEPLOYED_SQL_SMOKE=1 bun test apps/worker/src/postgres-smoke.test.ts",
+    "alert:synthetic": "bun run apps/worker/src/synthetic-alert.ts",
     "build:contracts": "forge build",
-    "backend:dev": "bun run backend/src/server.ts",
-    "test:ts": "bun test sdk/src/index.test.ts",
+    "backend:dev": "bun run --cwd apps/api dev",
     "typecheck": "tsc --noEmit",
     "verify": "forge fmt --check && forge build && forge test && bun run test:ts && bun run typecheck"
   },
   "dependencies": {
+    "@bufinance/logger": "^0.1.1",
+    "@bufinance/worker-base": "^0.1.0",
     "@hono/node-server": "^1.14.4",
-    "@liveblocks/node": "^2.24.3",
-    "hono": "^4.7.11",
-    "viem": "^2.31.0"
+    "@liveblocks/node": "^2.24.4",
+    "hono": "^4.12.7",
+    "viem": "^2.31.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/bun": "^1.3.3",
+    "@types/node": "^22.15.32",
     "@types/react": "^19.1.8",
+    "ponder": "^0.16.6",
+    "turbo": "^2.5.4",
     "typescript": "^5.8.3"
   },
   "peerDependencies": {

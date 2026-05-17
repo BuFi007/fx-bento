@@ -1,0 +1,39 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "ui": "stream",
+  "globalDependencies": ["**/.env", "**/.env.local"],
+  "globalPassThroughEnv": [
+    "API_SIGNER_PRIVATE_KEY",
+    "CONTRACT_ADDRESSES_JSON",
+    "LIVEBLOCKS_SECRET_KEY",
+    "MARKET_DATA_RPC_URL",
+    "PONDER_RPC_URL",
+    "WORKER_PORT",
+    "TREASURY_ADDRESS",
+    "X402_NETWORK",
+    "X402_RECEIVER_ADDRESS",
+    "X402_VERIFIER_URL"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "outputs": ["*.tsbuildinfo"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": ["coverage/**"]
+    },
+    "codegen": {
+      "cache": false,
+      "outputs": ["generated/**", ".ponder/**"]
+    }
+  }
+}

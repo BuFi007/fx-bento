@@ -1,0 +1,13 @@
+{
+  "name": "@bufinance/fx-bento-db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "postgres": "^3.4.5"
+  }
+}

@@ -16,6 +16,8 @@ FX² Arcade Protocol is a decentralized multiplayer arcade layer for FX markets.
 - `PoolRegistry.sol`: allowed FX pool registry.
 - `ProtocolFeeVault.sol`: receives protocol rake.
 
+Settlement evidence and challenge requirements live in `docs/settlement-evidence-policy.md`.
+
 ## Product Surface
 
 Frontend mode: **FX Bento Arcade**
@@ -28,31 +30,63 @@ Lobby copy:
 
 Backend endpoints:
 
-- `POST /arcade/rooms`
-- `GET /arcade/rooms`
-- `GET /arcade/rooms/:id`
-- `POST /arcade/rooms/:id/join-intent`
-- `POST /arcade/rooms/:id/commit`
-- `POST /arcade/rooms/:id/reveal`
-- `GET /arcade/rooms/:id/leaderboard`
-- `POST /arcade/rooms/:id/settle`
+- `GET /health`
+- `GET /fx-bento/rooms`
+- `POST /fx-bento/rooms`
+- `POST /fx-bento/rooms/prepare`
+- `GET /fx-bento/rooms/:id`
+- `GET /fx-bento/rooms/:id/players`
+- `GET /fx-bento/rooms/:id/rounds`
+- `POST /fx-bento/rooms/:id/join`
+- `POST /fx-bento/rooms/:id/leave`
+- `POST /fx-bento/rooms/:id/commit`
+- `POST /fx-bento/rooms/:id/reveal`
+- `GET /fx-bento/rooms/:id/leaderboard`
+- `GET /fx-bento/rooms/:id/claims/:address`
+- `POST /fx-bento/rooms/:id/claim`
+- `POST /fx-bento/rooms/:id/settle`
+- `GET /fx-bento/markets/:poolId/snapshots`
+
+Canonical write routes return contract transaction requests. Local simulator mutation routes live under `/fx-bento/dev/*` and are disabled outside development/test.
 
 ## Commands
 
 ```bash
+git submodule update --init --recursive
+bun install
 forge fmt --check
 forge build
 forge test
+bun run test:ts
 bun run typecheck
 bun run verify
 forge script script/PlanFXBentoDeployment.s.sol --sig "run()"
-bun install
 bun run backend:dev
+bun run test:anvil
+bun run dev:worker
+bun run --cwd apps/ponder codegen
 ```
+
+Useful backend env:
+
+- `PONDER_GRAPHQL_URL`: remote Ponder GraphQL endpoint used by the API for indexed room reads.
+- `PONDER_SQL_URL`: Postgres-compatible Ponder SQL database URL; used as the production persistence backend when `FX_BENTO_DATABASE_URL` is not set.
+- `CONTRACT_RPC_URL`: RPC endpoint used for viem `simulateContract` and contract-read reconciliation.
+- `CONTRACT_ADDRESSES_JSON`: chain-scoped contract address map consumed by API transaction prep and reconciliation.
+- `FX_BENTO_DATABASE_URL`: Postgres database URL for worker jobs, settlement proofs, and x402 receipts.
+- `FX_BENTO_DB_PATH`: SQLite DB path for worker jobs, tx confirmation status, settlement allocations, and claim proofs; defaults to `.fx-bento/fx-bento-<env>.sqlite`.
+- `WORKER_JOB_STORE_PATH`: legacy fallback path for worker jobs, now interpreted as a SQLite DB path.
+- `SETTLEMENT_RESULT_STORE_PATH`: legacy fallback path for settlement allocations/proofs, now interpreted as a SQLite DB path.
+- `WORKER_STUCK_JOB_SECONDS`: age threshold for surfacing stuck finalizations in worker health; defaults to `600`.
+- `OPERATOR_ALERT_WEBHOOK_URL`: optional production alert sink; worker health, drain, and dashboard requests post `operator.alerts` here when alerts are present.
+- `OPERATOR_ALERT_MIN_SEVERITY`: `warning` or `critical`; defaults to `warning`.
+- `OPERATOR_ALERT_DEDUP_SECONDS`: in-process alert dedupe window; defaults to `900`.
 
 ## Status
 
 This is an MVP scaffold with passing Foundry coverage for room creation, joins, max-player limits, min-player lock checks, clean cancellation/refund failure paths, paid active membership, commit-reveal, anti-wall rejection, scoring, hook snapshots, round anchoring, typed settlement payloads, challenge resolution, timeout rescue refunds, rake, prize claims, double-settlement prevention, and lifecycle accounting invariants.
+
+The backend worker persists lifecycle jobs, settlement proofs, and x402 receipts through Postgres/Ponder SQL in production or SQLite locally, retries delayed submissions/confirmations with backoff, and exposes/pages operator health for pending confirmations, Ponder lag, and stuck finalizations.
 
 Current hardening references:
 

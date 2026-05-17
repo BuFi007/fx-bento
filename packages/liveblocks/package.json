@@ -1,0 +1,16 @@
+{
+  "name": "@bufinance/fx-bento-liveblocks",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./rooms": "./src/rooms.ts",
+    "./server": "./src/server.ts"
+  },
+  "dependencies": {
+    "@liveblocks/node": "^2.24.4",
+    "zod": "^3.25.76"
+  }
+}

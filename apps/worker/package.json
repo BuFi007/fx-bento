@@ -1,0 +1,26 @@
+{
+  "name": "@bufinance/fx-bento-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/server.ts",
+    "start": "bun run src/server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@bufinance/fx-bento-contracts": "workspace:*",
+    "@bufinance/fx-bento-db": "workspace:*",
+    "@bufinance/fx-bento-env": "workspace:*",
+    "@bufinance/fx-bento-game": "workspace:*",
+    "@bufinance/fx-bento-liveblocks": "workspace:*",
+    "@bufinance/fx-bento-logger": "workspace:*",
+    "@bufinance/fx-bento-ponder": "workspace:*",
+    "@bufinance/fx-bento-shared-types": "workspace:*",
+    "@bufinance/worker-base": "^0.1.0",
+    "@hono/node-server": "^1.14.4",
+    "hono": "^4.12.7",
+    "viem": "^2.31.0",
+    "zod": "^3.25.76"
+  }
+}

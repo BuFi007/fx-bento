@@ -38,14 +38,18 @@ Complete in the MVP scaffold:
 - Backend can poll configured contract logs with viem and feed the same event-derived state path.
 - Liveblocks auth requires active room membership unless spectator mode is requested.
 - Commit/reveal endpoints are relay-only, idempotent, room-status gated, and commitment signatures can be verified against the Solidity digest.
+- Anvil lifecycle coverage exists for contract-backed API transaction preparation.
+- Worker persistence covers lifecycle jobs, settlement proofs, x402 receipts, retry/backoff, pending confirmations, Ponder lag, and stuck finalization health.
 
 Remaining P1 production work:
 
-- Move poller state from local JSON to production persistence.
 - Add deployment-specific event address configuration.
 - Verify on-chain room membership/status before granting room access in production mode.
-- Persist commitment, reveal, settlement, and leaderboard inputs.
+- Extend Ponder plus direct contract reconciliation to every worker-submitted action.
+- Cross-check TypeScript score/result generation against Solidity fixtures.
+- Add route schema tests for indexed room/player/round/claim responses.
 - Add typed EIP-712 result attestation schema.
+- Add role checks for backend-authorized jobs.
 
 ## P1 Frontend / SDK
 

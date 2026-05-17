@@ -1,0 +1,19 @@
+{
+  "name": "@bufinance/fx-bento-game",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bufinance/fx-bento-contracts": "workspace:*",
+    "@bufinance/fx-bento-db": "workspace:*",
+    "@bufinance/fx-bento-liveblocks": "workspace:*",
+    "@bufinance/fx-bento-market-data": "workspace:*",
+    "@bufinance/fx-bento-shared-types": "workspace:*",
+    "viem": "^2.31.0",
+    "zod": "^3.25.76"
+  }
+}
