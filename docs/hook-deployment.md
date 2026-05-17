@@ -37,7 +37,23 @@ Before attaching the hook to a real v4 pool:
 
 ## Salt Mining
 
-Use the mining script with the final constructor arguments and CREATE2 deployer address. Constructor arguments affect the init code hash, so changing `OWNER`, `POOL_MANAGER`, `POOL_REGISTRY`, or `PROTOCOL_FEE_VAULT` changes the predicted address.
+For a full aggregate deployment, first run the planner. It predicts the `PoolRegistry` and `ProtocolFeeVault` addresses from the deployer nonce, then mines a hook salt using those exact constructor arguments.
+
+```bash
+DEPLOYER=0x... \
+DEPLOYER_NONCE=123 \
+OWNER=0x... \
+TREASURY=0x... \
+POOL_MANAGER=0x... \
+HOOK_MINE_ATTEMPTS=5000000 \
+forge script script/PlanFXBentoDeployment.s.sol --sig "run()"
+```
+
+If `DEPLOYER_NONCE` is omitted, the script reads the current nonce from the connected execution context. Use an RPC URL or provide the nonce explicitly for testnet/mainnet planning.
+
+The deployer nonce must not change between planning and broadcast. If any transaction is sent from the deployer, re-run the planner and use the new salt.
+
+For a hook-only deployment where registry and vault already exist, use the lower-level mining script with the final constructor arguments and CREATE2 deployer address. Constructor arguments affect the init code hash, so changing `OWNER`, `POOL_MANAGER`, `POOL_REGISTRY`, or `PROTOCOL_FEE_VAULT` changes the predicted address.
 
 ```bash
 CREATE2_DEPLOYER=0x... \

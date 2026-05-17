@@ -45,6 +45,7 @@ forge build
 forge test
 bun run typecheck
 bun run verify
+forge script script/PlanFXBentoDeployment.s.sol --sig "run()"
 bun install
 bun run backend:dev
 ```
