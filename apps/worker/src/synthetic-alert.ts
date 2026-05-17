@@ -11,11 +11,18 @@ import {
 
 async function main() {
   const env = readEnv();
-  if (!env.OPERATOR_ALERT_WEBHOOK_URL) {
-    throw new Error("OPERATOR_ALERT_WEBHOOK_URL is required to trigger a synthetic operator alert");
+  if (!env.OPERATOR_ALERT_WEBHOOK_URL && (!env.SLACK_BOT_TOKEN || !env.FX_BENTO_OPS_SLACK_CHANNEL_ID)) {
+    throw new Error(
+      "OPERATOR_ALERT_WEBHOOK_URL or SLACK_BOT_TOKEN plus FX_BENTO_OPS_SLACK_CHANNEL_ID is required to trigger a synthetic operator alert"
+    );
   }
 
-  const databaseUrl = env.FX_BENTO_DATABASE_URL ?? env.PONDER_SQL_URL;
+  const databaseUrl =
+    env.FX_BENTO_DATABASE_URL ??
+    env.DATABASE_PRIVATE_URL ??
+    env.DATABASE_URL ??
+    env.POSTGRES_URL ??
+    env.PRISMA_DATABASE_URL;
   const dbPath = env.FX_BENTO_DB_PATH ?? env.WORKER_JOB_STORE_PATH ?? `.fx-bento/fx-bento-${env.ENVIRONMENT}.sqlite`;
   configureFxBentoJobStore({
     store: databaseUrl
@@ -29,7 +36,7 @@ async function main() {
   await enqueueFxBentoJob({
     id,
     kind: "finalize_results",
-    chainId: Number(process.env.PONDER_CHAIN_ID ?? 84532),
+    chainId: env.FX_BENTO_CHAIN_ID ?? env.PONDER_CHAIN_ID ?? 84532,
     roomId: `synthetic-${now}`,
     status: "running",
     attempts: 2,
@@ -76,7 +83,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : "synthetic_alert_failed");
-  process.exitCode = 1;
-});
+main()
+  .then(() => process.exit(process.exitCode ?? 0))
+  .catch((error) => {
+    console.error(error instanceof Error ? error.message : "synthetic_alert_failed");
+    process.exit(1);
+  });

@@ -336,7 +336,7 @@ async function transactionPayload(
 
 function ponderSourceFromEnv() {
   const env = readEnv();
-  return createPonderReadSource({ graphqlUrl: env.PONDER_GRAPHQL_URL });
+  return createPonderReadSource({ graphqlUrl: env.PONDER_GRAPHQL_URL, sqlUrl: env.PONDER_SQL_URL });
 }
 
 function assertDevSimulatorEnabled() {

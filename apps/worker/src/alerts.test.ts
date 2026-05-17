@@ -57,17 +57,20 @@ const env = {
   ENVIRONMENT: "production" as const,
   OPERATOR_ALERT_DEDUP_SECONDS: 900,
   OPERATOR_ALERT_MIN_SEVERITY: "warning" as const,
-  OPERATOR_ALERT_WEBHOOK_URL: "https://alerts.example.test/fx-bento",
+  SLACK_BOT_TOKEN: "xoxb-test-token",
+  FX_BENTO_OPS_SLACK_CHANNEL_ID: "C0FXBENTO",
 };
+
+const slackOkResponse = () => new Response(JSON.stringify({ ok: true }), { status: 200 });
 
 describe("operator alert sink", () => {
   beforeEach(() => {
     resetOperatorAlertDedupeForTests();
   });
 
-  test("returns disabled status when no webhook is configured", async () => {
+  test("returns disabled status when slack credentials are missing", async () => {
     const result = await dispatchOperatorAlerts({
-      env: { ...env, OPERATOR_ALERT_WEBHOOK_URL: undefined },
+      env: { ...env, SLACK_BOT_TOKEN: undefined },
       jobHealth: baseHealth,
       source: "operator_health",
     });
@@ -80,10 +83,53 @@ describe("operator alert sink", () => {
     });
   });
 
-  test("posts operator alerts to the configured webhook", async () => {
-    const payloads: unknown[] = [];
+  test("posts operator alerts to slack chat.postMessage with bearer auth", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
     const result = await dispatchOperatorAlerts({
       env,
+      jobHealth: baseHealth,
+      source: "operator_dashboard",
+      fetcher: async (url, init) => {
+        calls.push({ url: String(url), init });
+        return slackOkResponse();
+      },
+      now: () => 1_000,
+    });
+
+    expect(result).toMatchObject({
+      configured: true,
+      dispatched: 2,
+      suppressed: 0,
+      slackChannelId: "C0FXBENTO",
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.url).toBe("https://slack.com/api/chat.postMessage");
+    const headers = (calls[0]?.init?.headers ?? {}) as Record<string, string>;
+    expect(headers.authorization).toBe("Bearer xoxb-test-token");
+    expect(headers["content-type"]).toContain("application/json");
+
+    const payload = JSON.parse(String(calls[0]?.init?.body)) as {
+      channel: string;
+      text: string;
+      mrkdwn: boolean;
+    };
+    expect(payload.channel).toBe("C0FXBENTO");
+    expect(payload.mrkdwn).toBe(true);
+    expect(payload.text).toContain("FX Bento worker degraded");
+    expect(payload.text).toContain("1 critical, 1 warning");
+    expect(payload.text).toContain("`stuck_worker_jobs`");
+    expect(payload.text).toContain("`pending_ponder`");
+  });
+
+  test("posts operator alerts to a generic webhook when configured", async () => {
+    const payloads: unknown[] = [];
+    const result = await dispatchOperatorAlerts({
+      env: {
+        ...env,
+        SLACK_BOT_TOKEN: undefined,
+        FX_BENTO_OPS_SLACK_CHANNEL_ID: undefined,
+        OPERATOR_ALERT_WEBHOOK_URL: "https://alerts.example.test/fx-bento",
+      },
       jobHealth: baseHealth,
       source: "operator_dashboard",
       fetcher: async (_url, init) => {
@@ -114,7 +160,7 @@ describe("operator alert sink", () => {
     let calls = 0;
     const fetcher = async () => {
       calls += 1;
-      return new Response(null, { status: 204 });
+      return slackOkResponse();
     };
 
     await dispatchOperatorAlerts({ env, jobHealth: baseHealth, source: "health", fetcher, now: () => 1_000 });
@@ -125,23 +171,40 @@ describe("operator alert sink", () => {
   });
 
   test("honors critical-only alert severity", async () => {
-    const payloads: unknown[] = [];
+    const payloads: string[] = [];
     const result = await dispatchOperatorAlerts({
       env: { ...env, OPERATOR_ALERT_MIN_SEVERITY: "critical" },
       jobHealth: baseHealth,
       source: "jobs_drain",
       fetcher: async (_url, init) => {
-        payloads.push(JSON.parse(String(init?.body)));
-        return new Response(null, { status: 204 });
+        const body = JSON.parse(String(init?.body)) as { text: string };
+        payloads.push(body.text);
+        return slackOkResponse();
       },
       now: () => 1_000,
     });
 
     expect(result).toMatchObject({ dispatched: 1 });
-    expect(payloads).toEqual([
-      expect.objectContaining({
-        alerts: [expect.objectContaining({ severity: "critical", code: "stuck_worker_jobs" })],
-      }),
-    ]);
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0]).toContain("`stuck_worker_jobs`");
+    expect(payloads[0]).not.toContain("`pending_ponder`");
+  });
+
+  test("surfaces slack api errors without marking dispatched", async () => {
+    const result = await dispatchOperatorAlerts({
+      env,
+      jobHealth: baseHealth,
+      source: "operator_health",
+      fetcher: async () =>
+        new Response(JSON.stringify({ ok: false, error: "channel_not_found" }), { status: 200 }),
+      now: () => 1_000,
+    });
+
+    expect(result).toMatchObject({
+      configured: true,
+      dispatched: 0,
+      lastError: "channel_not_found",
+      slackChannelId: "C0FXBENTO",
+    });
   });
 });

@@ -10,12 +10,8 @@ import {
 import { createConfig } from "ponder";
 import { http } from "viem";
 
-const databaseUrl =
-  process.env.DATABASE_PRIVATE_URL ??
-  process.env.DATABASE_URL ??
-  process.env.PONDER_SQL_URL ??
-  process.env.FX_BENTO_DATABASE_URL;
-const chainId = Number(process.env.PONDER_CHAIN_ID ?? process.env.FX_BENTO_CHAIN_ID ?? 84532);
+const databaseUrl = firstEnv("PONDER_SQL_URL", "DATABASE_PRIVATE_URL", "DATABASE_URL", "FX_BENTO_DATABASE_URL");
+const chainId = Number(firstEnv("PONDER_CHAIN_ID", "FX_BENTO_CHAIN_ID") ?? 84532);
 const startBlock = resolveDeploymentStartBlock(process.env, chainId);
 const rpcUrl = resolveDeploymentRpcUrl(process.env, chainId) ?? "http://127.0.0.1:8545";
 const contractAddresses = chainContractAddressesFromEnv(process.env, chainId);
@@ -67,6 +63,14 @@ function envAddress(name: ContractName, fallbackIndex: number): `0x${string}` {
 
 function camelToSnake(value: string): string {
   return value.replaceAll(/([a-z0-9])([A-Z])/g, "$1_$2");
+}
+
+function firstEnv(...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (value) return value;
+  }
+  return undefined;
 }
 
 const FX_BENTO_ADDRESS_ALIASES = {

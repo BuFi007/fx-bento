@@ -20,7 +20,12 @@ const log = createLogger({ prefix: "fx-bento:worker" });
 export function createWorkerApp() {
   const env = readEnv();
   const app = new Hono();
-  const databaseUrl = env.FX_BENTO_DATABASE_URL ?? env.PONDER_SQL_URL;
+  const databaseUrl =
+    env.FX_BENTO_DATABASE_URL ??
+    env.DATABASE_PRIVATE_URL ??
+    env.DATABASE_URL ??
+    env.POSTGRES_URL ??
+    env.PRISMA_DATABASE_URL;
   const dbPath = databaseUrl
     ? undefined
     : env.FX_BENTO_DB_PATH ?? env.WORKER_JOB_STORE_PATH ?? `.fx-bento/fx-bento-${env.ENVIRONMENT}.sqlite`;
@@ -56,7 +61,7 @@ export function createWorkerApp() {
     const [jobHealth, settlementResults, indexer] = await Promise.all([
       getFxBentoWorkerHealthSnapshot({ stuckAfterMs: workerStuckAfterMs(env) }),
       listFxBentoSettlementResults(),
-      env.PONDER_GRAPHQL_URL ? createPonderReadSource({ graphqlUrl: env.PONDER_GRAPHQL_URL }).health() : null,
+      createPonderReadSource({ graphqlUrl: env.PONDER_GRAPHQL_URL, sqlUrl: env.PONDER_SQL_URL }).health(),
     ]);
     const alertSink = await dispatchOperatorAlerts({ env, jobHealth, indexer, source: "health" });
     return c.json({
@@ -103,7 +108,7 @@ export function createWorkerApp() {
     const jobs = await drainFxBentoJobs();
     const [jobHealth, indexer] = await Promise.all([
       getFxBentoWorkerHealthSnapshot({ stuckAfterMs: workerStuckAfterMs(env) }),
-      env.PONDER_GRAPHQL_URL ? createPonderReadSource({ graphqlUrl: env.PONDER_GRAPHQL_URL }).health() : null,
+      createPonderReadSource({ graphqlUrl: env.PONDER_GRAPHQL_URL, sqlUrl: env.PONDER_SQL_URL }).health(),
     ]);
     return c.json({
       jobs,
@@ -117,7 +122,7 @@ export function createWorkerApp() {
   app.get("/operator/health", async (c) => {
     const [jobHealth, indexer] = await Promise.all([
       getFxBentoWorkerHealthSnapshot({ stuckAfterMs: workerStuckAfterMs(env) }),
-      env.PONDER_GRAPHQL_URL ? createPonderReadSource({ graphqlUrl: env.PONDER_GRAPHQL_URL }).health() : null,
+      createPonderReadSource({ graphqlUrl: env.PONDER_GRAPHQL_URL, sqlUrl: env.PONDER_SQL_URL }).health(),
     ]);
     return c.json({
       jobHealth,
@@ -140,7 +145,7 @@ export function createWorkerApp() {
       getFxBentoWorkerHealthSnapshot({ stuckAfterMs: workerStuckAfterMs(env) }),
       listFxBentoJobs(),
       listFxBentoSettlementResults(),
-      env.PONDER_GRAPHQL_URL ? createPonderReadSource({ graphqlUrl: env.PONDER_GRAPHQL_URL }).health() : null,
+      createPonderReadSource({ graphqlUrl: env.PONDER_GRAPHQL_URL, sqlUrl: env.PONDER_SQL_URL }).health(),
     ]);
     return c.json({
       service: "fx-bento-worker",

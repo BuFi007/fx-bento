@@ -7,6 +7,7 @@ import {
   inspectFxBentoMarketSnapshots,
   inspectPonderState,
   createPonderGraphqlReadSource,
+  createPonderSqlReadSource,
   recordFxBentoContractEvent,
   recordIndexedEvent,
   resetPonderStateForTests,
@@ -221,6 +222,78 @@ describe("Ponder mapping helpers", () => {
       players: [{ wallet: alice, status: "joined" }],
       rounds: [{ roundIndex: 0, commitments: [{ wallet: alice, commitment: root, txHash }] }],
     });
+  });
+
+  test("reads normalized room detail and snapshots from Ponder SQL", async () => {
+    const source = createPonderSqlReadSource({
+      sql: async (strings) => {
+        const query = strings.join("?");
+        if (query.includes("from fx_bento_room_player")) {
+          return [{ player: alice, status: "joined", joined_at: "110", updated_at: "110" }];
+        }
+        if (query.includes("from fx_bento_round")) {
+          return [{ room_id: "1", round_index: 0, status: "active", start_time: "120", updated_at: "120" }];
+        }
+        if (query.includes("from fx_bento_commitment")) {
+          return [{ room_id: "1", round_index: 0, player: alice, commitment: root, committed_tx_hash: txHash }];
+        }
+        if (query.includes("from fx_bento_market_snapshot")) {
+          return [
+            {
+              id: "snapshot-1",
+              chain_id: 84532,
+              pool_id: poolId,
+              sqrt_price_x96: "123",
+              tick: -50,
+              timestamp: "130",
+              volatility: "8",
+              tx_hash: txHash,
+            },
+          ];
+        }
+        if (query.includes("from fx_bento_event")) {
+          return [{ block_number: "777", timestamp: String(Math.floor(Date.now() / 1000) - 5) }];
+        }
+        if (query.includes("from fx_bento_room")) {
+          return [
+            {
+              id: "84532:1",
+              chain_id: 84532,
+              room_id: "1",
+              pool_id: poolId,
+              entry_token: "0x0000000000000000000000000000000000000001",
+              entry_fee: "5000000",
+              status: "active",
+              player_count: 1,
+              escrowed_amount: "5000000",
+              protocol_fee: null,
+              settlement_root: null,
+              results_metadata_uri: null,
+              results_challenged: false,
+              results_finalized: false,
+              updated_at: "120",
+            },
+          ];
+        }
+        return [];
+      },
+    });
+
+    const room = await source.inspectFxBentoRoom({ chainId: 84532, roomId: "1" });
+    expect(room).toMatchObject({
+      chainId: 84532,
+      roomId: "1",
+      status: "active",
+      playerCount: 1,
+      players: [{ wallet: alice, status: "joined" }],
+      rounds: [{ roundIndex: 0, commitments: [{ wallet: alice, commitment: root, txHash }] }],
+    });
+
+    await expect(source.listFxBentoRooms(84532)).resolves.toHaveLength(1);
+    await expect(source.inspectFxBentoMarketSnapshots({ chainId: 84532, poolId })).resolves.toEqual([
+      expect.objectContaining({ poolId, sqrtPriceX96: "123", tick: "-50" }),
+    ]);
+    await expect(source.health()).resolves.toMatchObject({ status: "sql", ok: true, latestBlockNumber: "777" });
   });
 
   test("reports remote Ponder lag from the latest indexed event", async () => {

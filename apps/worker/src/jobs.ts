@@ -904,8 +904,8 @@ function retryDelayMs(attempts: number, policy: FxBentoRetryPolicy): number {
 function createDefaultFxBentoJobRunOptions(job: FxBentoJob): FxBentoJobRunOptions {
   const env = readEnv();
   const rpcUrl = resolveDeploymentRpcUrl(env, job.chainId) ?? env.MARKET_DATA_RPC_URL;
-  const ponderReadSource = env.PONDER_GRAPHQL_URL
-    ? createPonderReadSource({ graphqlUrl: env.PONDER_GRAPHQL_URL })
+  const ponderReadSource = env.PONDER_GRAPHQL_URL || env.PONDER_SQL_URL
+    ? createPonderReadSource({ graphqlUrl: env.PONDER_GRAPHQL_URL, sqlUrl: env.PONDER_SQL_URL })
     : undefined;
   const addresses = chainContractAddressesFromEnv(env, job.chainId);
   const contractEngine = hasAnyContractAddress(addresses)
@@ -918,7 +918,7 @@ function createDefaultFxBentoJobRunOptions(job: FxBentoJob): FxBentoJobRunOption
     return {
       contractEngine,
       ponderReadSource,
-      requirePonderFinality: Boolean(env.PONDER_GRAPHQL_URL),
+      requirePonderFinality: Boolean(env.PONDER_GRAPHQL_URL || env.PONDER_SQL_URL),
     };
   }
   const chain = defineChain({
@@ -960,6 +960,6 @@ function createDefaultFxBentoJobRunOptions(job: FxBentoJob): FxBentoJobRunOption
     contractEngine,
     transactionSubmitter,
     ponderReadSource,
-    requirePonderFinality: Boolean(env.PONDER_GRAPHQL_URL),
+    requirePonderFinality: Boolean(env.PONDER_GRAPHQL_URL || env.PONDER_SQL_URL),
   };
 }

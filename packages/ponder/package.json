@@ -10,6 +10,7 @@
   "dependencies": {
     "@bufinance/fx-bento-contracts": "workspace:*",
     "@bufinance/fx-bento-shared-types": "workspace:*",
+    "postgres": "^3.4.5",
     "zod": "^3.25.76"
   }
 }

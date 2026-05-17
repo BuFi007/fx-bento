@@ -7,7 +7,12 @@ export type OperatorAlertFetch = (input: RequestInfo | URL, init?: RequestInit) 
 export interface OperatorAlertDispatchInput {
   env: Pick<
     FxBentoEnv,
-    "ENVIRONMENT" | "OPERATOR_ALERT_DEDUP_SECONDS" | "OPERATOR_ALERT_MIN_SEVERITY" | "OPERATOR_ALERT_WEBHOOK_URL"
+    | "ENVIRONMENT"
+    | "OPERATOR_ALERT_DEDUP_SECONDS"
+    | "OPERATOR_ALERT_MIN_SEVERITY"
+    | "OPERATOR_ALERT_WEBHOOK_URL"
+    | "SLACK_BOT_TOKEN"
+    | "FX_BENTO_OPS_SLACK_CHANNEL_ID"
   >;
   jobHealth: FxBentoWorkerHealthSnapshot;
   indexer?: unknown;
@@ -22,9 +27,11 @@ export interface OperatorAlertDispatchResult {
   suppressed: number;
   minSeverity: "warning" | "critical";
   endpointHost?: string;
+  slackChannelId?: string;
   lastError?: string;
 }
 
+const SLACK_POST_MESSAGE_URL = "https://slack.com/api/chat.postMessage";
 const lastDispatchedAt = new Map<string, number>();
 
 export async function dispatchOperatorAlerts(
@@ -32,7 +39,9 @@ export async function dispatchOperatorAlerts(
 ): Promise<OperatorAlertDispatchResult> {
   const minSeverity = input.env.OPERATOR_ALERT_MIN_SEVERITY;
   const webhookUrl = input.env.OPERATOR_ALERT_WEBHOOK_URL;
-  if (!webhookUrl) {
+  const botToken = input.env.SLACK_BOT_TOKEN;
+  const channelId = input.env.FX_BENTO_OPS_SLACK_CHANNEL_ID;
+  if (!webhookUrl && (!botToken || !channelId)) {
     return { configured: false, dispatched: 0, suppressed: 0, minSeverity };
   }
 
@@ -52,15 +61,67 @@ export async function dispatchOperatorAlerts(
       dispatched: 0,
       suppressed: alerts.length,
       minSeverity,
+      endpointHost: webhookUrl ? safeHost(webhookUrl) : undefined,
+      slackChannelId: webhookUrl ? undefined : channelId,
+    };
+  }
+
+  if (webhookUrl) {
+    const response = await (input.fetcher ?? fetch)(webhookUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(buildOperatorAlertPayload(input, readyAlerts)),
+    }).catch((error) => (error instanceof Error ? error : new Error("operator_alert_dispatch_failed")));
+
+    if (response instanceof Error) {
+      return {
+        configured: true,
+        dispatched: 0,
+        suppressed: alerts.length - readyAlerts.length,
+        minSeverity,
+        endpointHost: safeHost(webhookUrl),
+        lastError: response.message,
+      };
+    }
+    if (!response.ok) {
+      return {
+        configured: true,
+        dispatched: 0,
+        suppressed: alerts.length - readyAlerts.length,
+        minSeverity,
+        endpointHost: safeHost(webhookUrl),
+        lastError: `operator_alert_http_${response.status}`,
+      };
+    }
+
+    for (const alert of readyAlerts) {
+      lastDispatchedAt.set(alertKey(alert), input.now?.() ?? Date.now());
+    }
+    return {
+      configured: true,
+      dispatched: readyAlerts.length,
+      suppressed: alerts.length - readyAlerts.length,
+      minSeverity,
       endpointHost: safeHost(webhookUrl),
     };
   }
 
-  const response = await (input.fetcher ?? fetch)(webhookUrl, {
+  const body = JSON.stringify({
+    channel: channelId,
+    text: buildSlackText(input, readyAlerts),
+    unfurl_links: false,
+    unfurl_media: false,
+    mrkdwn: true,
+  });
+
+  const response = await (input.fetcher ?? fetch)(SLACK_POST_MESSAGE_URL, {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(buildOperatorAlertPayload(input, readyAlerts)),
-  }).catch((error) => error instanceof Error ? error : new Error("operator_alert_dispatch_failed"));
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      authorization: `Bearer ${botToken}`,
+    },
+    body,
+  }).catch((error) => (error instanceof Error ? error : new Error("slack_post_message_failed")));
 
   if (response instanceof Error) {
     return {
@@ -68,18 +129,20 @@ export async function dispatchOperatorAlerts(
       dispatched: 0,
       suppressed: alerts.length - readyAlerts.length,
       minSeverity,
-      endpointHost: safeHost(webhookUrl),
+      slackChannelId: channelId,
       lastError: response.message,
     };
   }
-  if (!response.ok) {
+
+  const parsed = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+  if (!response.ok || !parsed?.ok) {
     return {
       configured: true,
       dispatched: 0,
       suppressed: alerts.length - readyAlerts.length,
       minSeverity,
-      endpointHost: safeHost(webhookUrl),
-      lastError: `operator_alert_http_${response.status}`,
+      slackChannelId: channelId,
+      lastError: parsed?.error ?? `slack_http_${response.status}`,
     };
   }
 
@@ -92,7 +155,7 @@ export async function dispatchOperatorAlerts(
     dispatched: readyAlerts.length,
     suppressed: alerts.length - readyAlerts.length,
     minSeverity,
-    endpointHost: safeHost(webhookUrl),
+    slackChannelId: channelId,
   };
 }
 
@@ -122,6 +185,32 @@ function buildOperatorAlertPayload(input: OperatorAlertDispatchInput, alerts: Fx
     indexer: input.indexer ?? null,
     dispatchedAt: new Date().toISOString(),
   };
+}
+
+function buildSlackText(input: OperatorAlertDispatchInput, alerts: FxBentoWorkerHealthAlert[]): string {
+  const criticalCount = alerts.filter((alert) => alert.severity === "critical").length;
+  const warningCount = alerts.filter((alert) => alert.severity === "warning").length;
+  const emoji = criticalCount > 0 ? ":rotating_light:" : ":warning:";
+  const header =
+    `${emoji} *FX Bento worker ${input.jobHealth.status}* — ` +
+    `${criticalCount} critical, ${warningCount} warning ` +
+    `(env=\`${input.env.ENVIRONMENT}\` source=\`${input.source}\`)`;
+
+  const lines = alerts.slice(0, 10).map((alert) => {
+    const subject = alert.jobId ?? alert.roomId ?? alert.kind ?? "global";
+    const age = typeof alert.ageSeconds === "number" ? ` age=\`${alert.ageSeconds}s\`` : "";
+    return `• [${alert.severity}] \`${alert.code}\` ${subject}${age} — ${alert.message}`;
+  });
+
+  const overflow = alerts.length > lines.length ? `\n…and ${alerts.length - lines.length} more` : "";
+  const operator = input.jobHealth;
+  const footer =
+    `\n_pendingPonder=${operator.pendingPonderCount} pendingReceipt=${operator.pendingReceiptCount} ` +
+    `oldestPendingConfAge=${operator.oldestPendingConfirmationAgeSeconds ?? "n/a"}s ` +
+    `maxPonderLag=${operator.maxPonderLagSeconds ?? "n/a"}s ` +
+    `stuckJobs=${operator.stuckJobs.length} stuckFinalizations=${operator.stuckFinalizations.length}_`;
+
+  return [header, ...lines].join("\n") + overflow + footer;
 }
 
 function meetsSeverity(alert: FxBentoWorkerHealthAlert, minSeverity: "warning" | "critical"): boolean {

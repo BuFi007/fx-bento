@@ -221,6 +221,40 @@ describe("FX Bento API", () => {
     }
   });
 
+  test("uses FX_BENTO deployment env aliases for transaction prep", async () => {
+    const previous = {
+      CONTRACT_ADDRESSES_JSON: process.env.CONTRACT_ADDRESSES_JSON,
+      FX_BENTO_CHAIN_ID: process.env.FX_BENTO_CHAIN_ID,
+      FX_BENTO_FACTORY_ADDRESS: process.env.FX_BENTO_FACTORY_ADDRESS,
+      FX_BENTO_ESCROW_ADDRESS: process.env.FX_BENTO_ESCROW_ADDRESS,
+      FX_BENTO_COMMITMENT_MANAGER_ADDRESS: process.env.FX_BENTO_COMMITMENT_MANAGER_ADDRESS,
+      FX_BENTO_SETTLEMENT_ADDRESS: process.env.FX_BENTO_SETTLEMENT_ADDRESS,
+    };
+    delete process.env.CONTRACT_ADDRESSES_JSON;
+    process.env.FX_BENTO_CHAIN_ID = "84532";
+    process.env.FX_BENTO_FACTORY_ADDRESS = contractAddresses[84532].FXBentoRoomFactory;
+    process.env.FX_BENTO_ESCROW_ADDRESS = contractAddresses[84532].FXBentoRoomEscrow;
+    process.env.FX_BENTO_COMMITMENT_MANAGER_ADDRESS = contractAddresses[84532].FXBentoCommitmentManager;
+    process.env.FX_BENTO_SETTLEMENT_ADDRESS = contractAddresses[84532].FXBentoSettlementManager;
+    try {
+      const app = createApiApp();
+      const created = await request(app, "/fx-bento/rooms", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(onchainRoomConfig),
+      });
+      expect(created.status).toBe(200);
+      expect(await created.json()).toMatchObject({
+        transaction: { contractName: "FXBentoRoomFactory", functionName: "createRoom" },
+      });
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value) process.env[key] = value;
+        else delete process.env[key];
+      }
+    }
+  });
+
   test("reads FX Bento rooms from configured Ponder GraphQL", async () => {
     const previousUrl = process.env.PONDER_GRAPHQL_URL;
     const previousFetch = globalThis.fetch;

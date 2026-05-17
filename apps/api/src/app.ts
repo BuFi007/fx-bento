@@ -20,7 +20,12 @@ const log = createLogger({ prefix: "fx-bento:api" });
 export function createApiApp() {
   const env = readEnv();
   const app = new Hono();
-  const databaseUrl = env.FX_BENTO_DATABASE_URL ?? env.PONDER_SQL_URL;
+  const databaseUrl =
+    env.FX_BENTO_DATABASE_URL ??
+    env.DATABASE_PRIVATE_URL ??
+    env.DATABASE_URL ??
+    env.POSTGRES_URL ??
+    env.PRISMA_DATABASE_URL;
   configureFxBentoSettlementResultStore({
     databaseUrl,
     dbPath:

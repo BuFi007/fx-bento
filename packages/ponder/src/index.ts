@@ -1,5 +1,6 @@
 import { ROOM_STATUS_BY_ID, type ContractName } from "@bufinance/fx-bento-contracts";
 import { AddressSchema, HexSchema, MarketIdSchema, nowIso } from "@bufinance/fx-bento-shared-types";
+import postgres from "postgres";
 import { z } from "zod";
 
 export const IndexedEventKindSchema = z.enum([
@@ -169,10 +170,22 @@ export interface PonderReadSource {
         latestTimestamp?: string | null;
         lagSeconds?: number | null;
       }
+    | {
+        status: "sql";
+        ok: boolean;
+        error?: string;
+        latestBlockNumber?: string | null;
+        latestTimestamp?: string | null;
+        lagSeconds?: number | null;
+      }
   >;
 }
 
 export type PonderFetch = (input: string, init?: RequestInit) => Promise<Response>;
+export type PonderSqlClient = (
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+) => Promise<Array<Record<string, unknown>>>;
 
 const indexedEvents: IndexedEvent[] = [];
 const rooms = new Map<string, FxBentoRoomReadModel>();
@@ -322,11 +335,88 @@ export function createPonderMemoryReadSource(): PonderReadSource {
   };
 }
 
-export function createPonderReadSource(args: { graphqlUrl?: string | null; fetcher?: PonderFetch } = {}): PonderReadSource {
+export function createPonderReadSource(
+  args: { graphqlUrl?: string | null; sqlUrl?: string | null; fetcher?: PonderFetch } = {}
+): PonderReadSource {
   if (args.graphqlUrl) {
     return createPonderGraphqlReadSource({ endpoint: args.graphqlUrl, fetcher: args.fetcher });
   }
+  if (args.sqlUrl) {
+    return createPonderSqlReadSource({ databaseUrl: args.sqlUrl });
+  }
   return createPonderMemoryReadSource();
+}
+
+export function createPonderSqlReadSource(args: { databaseUrl?: string; sql?: PonderSqlClient }): PonderReadSource {
+  const sql: PonderSqlClient = args.sql ?? (postgres(args.databaseUrl ?? "", { max: 3, prepare: false }) as unknown as PonderSqlClient);
+
+  async function query(strings: TemplateStringsArray, ...values: unknown[]): Promise<Array<Record<string, unknown>>> {
+    try {
+      return sqlRows(await sql(strings, ...values));
+    } catch (error) {
+      if (isMissingPonderTable(error)) return [];
+      throw error;
+    }
+  }
+
+  return {
+    async listFxBentoRooms(chainId) {
+      const rows = chainId
+        ? await query`select * from fx_bento_room where chain_id = ${chainId} order by updated_at desc limit 250`
+        : await query`select * from fx_bento_room order by updated_at desc limit 250`;
+      return rows.map((room) => normalizeSqlRoom(room));
+    },
+
+    async inspectFxBentoRoom({ chainId, roomId }) {
+      const rooms = chainId
+        ? await query`select * from fx_bento_room where chain_id = ${chainId} and room_id = ${roomId} limit 1`
+        : await query`select * from fx_bento_room where room_id = ${roomId} limit 1`;
+      const room = rooms[0];
+      if (!room) return null;
+      const resolvedChainId = Number(room.chain_id ?? chainId ?? 0);
+      const [players, rounds, commitments] = await Promise.all([
+        query`select * from fx_bento_room_player where chain_id = ${resolvedChainId} and room_id = ${roomId} order by updated_at asc`,
+        query`select * from fx_bento_round where chain_id = ${resolvedChainId} and room_id = ${roomId} order by round_index asc`,
+        query`select * from fx_bento_commitment where chain_id = ${resolvedChainId} and room_id = ${roomId} order by updated_at asc`,
+      ]);
+      return normalizeSqlRoom(room, players, rounds, commitments);
+    },
+
+    async inspectFxBentoMarketSnapshots(options = {}) {
+      const limit = options.limit ?? 50;
+      const rows = options.chainId && options.poolId
+        ? await query`select * from fx_bento_market_snapshot where chain_id = ${options.chainId} and lower(pool_id) = lower(${options.poolId}) order by timestamp desc limit ${limit}`
+        : options.chainId
+          ? await query`select * from fx_bento_market_snapshot where chain_id = ${options.chainId} order by timestamp desc limit ${limit}`
+          : options.poolId
+            ? await query`select * from fx_bento_market_snapshot where lower(pool_id) = lower(${options.poolId}) order by timestamp desc limit ${limit}`
+            : await query`select * from fx_bento_market_snapshot order by timestamp desc limit ${limit}`;
+      return rows.map(normalizeSqlSnapshot);
+    },
+
+    async health() {
+      try {
+        const rows = sqlRows(await sql`select block_number, timestamp from fx_bento_event order by block_number desc limit 1`);
+        const latest = rows[0];
+        const latestTimestamp = latest ? timestampFromSeconds(latest.timestamp) : null;
+        return {
+          status: "sql",
+          ok: rows.length > 0,
+          latestBlockNumber: latest ? stringOrNull(latest.block_number) : null,
+          latestTimestamp,
+          lagSeconds: latestTimestamp
+            ? Math.max(0, Math.floor((Date.now() - Date.parse(latestTimestamp)) / 1000))
+            : null,
+        };
+      } catch (error) {
+        return {
+          status: "sql",
+          ok: false,
+          error: error instanceof Error ? error.message : "unknown_error",
+        };
+      }
+    },
+  };
 }
 
 export function createPonderGraphqlReadSource(args: { endpoint: string; fetcher?: PonderFetch }): PonderReadSource {
@@ -749,6 +839,64 @@ function collection(data: Record<string, unknown>, keys: string[]): Array<Record
   return [];
 }
 
+function normalizeSqlRoom(
+  room: Record<string, unknown>,
+  players: Array<Record<string, unknown>> = [],
+  rounds: Array<Record<string, unknown>> = [],
+  commitments: Array<Record<string, unknown>> = []
+): FxBentoRoomReadModel {
+  return normalizePonderRoom(
+    {
+      id: room.id,
+      chainId: room.chain_id,
+      roomId: room.room_id,
+      poolId: room.pool_id,
+      entryToken: room.entry_token,
+      entryFee: room.entry_fee,
+      marketId: room.market_id,
+      status: room.status,
+      playerCount: room.player_count,
+      escrowedAmount: room.escrowed_amount,
+      protocolFee: room.protocol_fee,
+      settlementRoot: room.settlement_root,
+      resultsMetadataUri: room.results_metadata_uri,
+      resultsChallenged: room.results_challenged,
+      resultsFinalized: room.results_finalized,
+      updatedAt: room.updated_at,
+    },
+    players.map((player) => ({
+      player: player.player,
+      status: player.status,
+      joinedAt: player.joined_at,
+      leftAt: player.left_at,
+      refundedAt: player.refunded_at,
+      prizeClaimedAmount: player.prize_claimed_amount,
+      updatedAt: player.updated_at,
+    })),
+    rounds.map((round) => ({
+      roomId: round.room_id,
+      roundIndex: round.round_index,
+      status: round.status,
+      startTime: round.start_time,
+      lockTime: round.lock_time,
+      endTime: round.end_time,
+      anchorPrice: round.anchor_price,
+      settlementPrice: round.settlement_price,
+      updatedAt: round.updated_at,
+    })),
+    commitments.map((commitment) => ({
+      roomId: commitment.room_id,
+      roundIndex: commitment.round_index,
+      player: commitment.player,
+      commitment: commitment.commitment,
+      selectedTilesHash: commitment.selected_tiles_hash,
+      committedTxHash: commitment.committed_tx_hash,
+      revealedTxHash: commitment.revealed_tx_hash,
+      updatedAt: commitment.updated_at,
+    }))
+  );
+}
+
 function normalizePonderRoom(
   room: Record<string, unknown>,
   players: Array<Record<string, unknown>> = [],
@@ -844,6 +992,19 @@ function normalizePonderSnapshot(snapshot: Record<string, unknown>): FxBentoMark
   };
 }
 
+function normalizeSqlSnapshot(snapshot: Record<string, unknown>): FxBentoMarketSnapshotReadModel {
+  return normalizePonderSnapshot({
+    id: snapshot.id,
+    chainId: snapshot.chain_id,
+    poolId: snapshot.pool_id,
+    sqrtPriceX96: snapshot.sqrt_price_x96,
+    tick: snapshot.tick,
+    timestamp: snapshot.timestamp,
+    volatility: snapshot.volatility,
+    txHash: snapshot.tx_hash,
+  });
+}
+
 function ensureNormalizedRound(rounds: FxBentoRoundReadModel[], roundIndex: number, roomId: string): FxBentoRoundReadModel {
   const existing = rounds.find((round) => round.roundIndex === roundIndex);
   if (existing) return existing;
@@ -871,6 +1032,17 @@ function normalizeRoomStatus(value: unknown): FxBentoRoomReadModel["status"] {
 function normalizePlayerStatus(value: unknown): FxBentoRoomReadModel["players"][number]["status"] {
   const status = String(value ?? "joined");
   return status === "left" || status === "refunded" ? status : "joined";
+}
+
+function sqlRows(rows: unknown): Array<Record<string, unknown>> {
+  return Array.isArray(rows) ? (rows as Array<Record<string, unknown>>) : [];
+}
+
+function isMissingPonderTable(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const code = "code" in error ? String((error as { code?: unknown }).code) : "";
+  const message = error instanceof Error ? error.message : "message" in error ? String((error as { message?: unknown }).message) : "";
+  return code === "42P01" || message.includes("does not exist");
 }
 
 const FxBentoRoomReadModelStatusSet = new Set(["lobby", "active", "settling", "settled", "cancelled", "unknown"]);
