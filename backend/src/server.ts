@@ -3,7 +3,18 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { getAddress, isAddress, recoverAddress, type Address, type Hex } from "viem";
+import {
+  createPublicClient,
+  decodeEventLog,
+  getAddress,
+  http,
+  isAddress,
+  parseAbi,
+  recoverAddress,
+  type Address,
+  type Hex,
+  type Log
+} from "viem";
 import {
   ROOM_STATUS,
   roomFlowActions,
@@ -83,6 +94,27 @@ type IndexedEvent =
   | { type: "ChallengeResolved"; roomId: string; accepted: boolean; txHash?: Hex; logIndex?: number }
   | { type: "SettlementRescued"; roomId: string; txHash?: Hex; logIndex?: number };
 
+type ChainPollerConfig = {
+  rpcUrl: string;
+  chainId: number;
+  pollIntervalMs: number;
+  fromBlock: bigint;
+  factoryAddress?: Address;
+  escrowAddress?: Address;
+  settlementAddress?: Address;
+};
+
+type PersistedState = {
+  rooms?: Array<Omit<RoomRecord, "commitments" | "reveals"> & {
+    commitments?: Array<[string, CommitmentRecord]>;
+    reveals?: Array<[string, RevealRecord]>;
+  }>;
+  roomIdByContractId?: Array<[string, string]>;
+  processedEvents?: string[];
+  relayIdempotency?: Array<[string, string]>;
+  pollerCursorBlock?: string;
+};
+
 const app = new Hono();
 const liveblocksSecret = process.env.LIVEBLOCKS_SECRET_KEY;
 const liveblocks = liveblocksSecret ? new Liveblocks({ secret: liveblocksSecret }) : null;
@@ -91,8 +123,25 @@ const roomIdByContractId = new Map<string, string>();
 const processedEvents = new Set<string>();
 const relayIdempotency = new Map<string, string>();
 const statePath = resolve(process.env.FX_BENTO_STATE_PATH ?? ".fx-bento/backend-state.json");
+let pollerCursorBlock: bigint | null = null;
+let pollerBusy = false;
+
+const fxBentoEventAbi = parseAbi([
+  "event RoomCreated(uint256 indexed roomId, bytes32 indexed poolId, address indexed entryToken, uint256 entryFee)",
+  "event RoomJoined(uint256 indexed roomId, address indexed player)",
+  "event RoomLeft(uint256 indexed roomId, address indexed player)",
+  "event RoomCancelled(uint256 indexed roomId)",
+  "event RoomLocked(uint256 indexed roomId, uint256 escrowed)",
+  "event RoomSettled(uint256 indexed roomId, bytes32 indexed resultsRoot, bytes32 indexed payoutSchemaHash, uint256 payoutTotal, uint256 protocolFee)",
+  "event Refunded(uint256 indexed roomId, address indexed player, uint256 amount)",
+  "event ResultsSubmitted(uint256 indexed roomId, bytes32 indexed resultsRoot, string metadataURI)",
+  "event ResultsChallenged(uint256 indexed roomId, bytes proof)",
+  "event ChallengeResolved(uint256 indexed roomId, bool accepted)",
+  "event SettlementRescued(uint256 indexed roomId)"
+]);
 
 loadState();
+startChainLogPollerFromEnv();
 
 app.use("*", cors());
 
@@ -303,6 +352,13 @@ app.post("/arcade/events", async (c) => {
   return c.json({ applied, skipped, rooms: [...rooms.values()].map((room) => toPublicRoom(syncRoomStatus(room))) });
 });
 
+app.post("/arcade/indexer/poll", async (c) => {
+  const poller = createChainLogPollerFromEnv();
+  if (!poller) return c.json({ error: "chain log poller is not configured" }, 503);
+  const result = await pollChainLogs(poller);
+  return c.json(result);
+});
+
 app.post("/liveblocks/auth", async (c) => {
   if (!liveblocks) return c.json({ error: "LIVEBLOCKS_SECRET_KEY is not configured" }, 503);
   const body = await c.req.json().catch(() => ({}));
@@ -503,6 +559,58 @@ function normalizeIndexedEvent(value: unknown): IndexedEvent | null {
   return null;
 }
 
+function normalizeLogEvent(log: Log): IndexedEvent | null {
+  try {
+    const decoded = decodeEventLog({ abi: fxBentoEventAbi, data: log.data, topics: log.topics });
+    const args = decoded.args as Record<string, unknown>;
+    const roomId = readBigInt(args.roomId);
+    if (roomId === null) return null;
+    const base = {
+      roomId: roomId.toString(),
+      txHash: log.transactionHash ?? undefined,
+      logIndex: log.logIndex ?? undefined
+    };
+
+    if (decoded.eventName === "RoomCreated") {
+      return { type: "RoomCreated", ...base };
+    }
+    if (decoded.eventName === "RoomJoined") {
+      const player = normalizeAddress(args.player);
+      return player ? { type: "RoomJoined", ...base, player } : null;
+    }
+    if (decoded.eventName === "RoomLeft") {
+      const player = normalizeAddress(args.player);
+      return player ? { type: "RoomLeft", ...base, player } : null;
+    }
+    if (decoded.eventName === "Refunded") {
+      const player = normalizeAddress(args.player);
+      return player ? { type: "Refunded", ...base, player } : null;
+    }
+    if (decoded.eventName === "RoomLocked") {
+      return { type: "RoomLocked", ...base };
+    }
+    if (decoded.eventName === "RoomCancelled") {
+      return { type: "RoomCancelled", ...base };
+    }
+    if (decoded.eventName === "SettlementRescued") {
+      return { type: "SettlementRescued", ...base };
+    }
+    if (decoded.eventName === "ResultsSubmitted") {
+      const resultsRoot = normalizeHex(args.resultsRoot);
+      return resultsRoot ? { type: "ResultsSubmitted", ...base, resultsRoot } : null;
+    }
+    if (decoded.eventName === "RoomSettled") {
+      const resultsRoot = normalizeHex(args.resultsRoot);
+      return resultsRoot ? { type: "RoomSettled", ...base, resultsRoot } : null;
+    }
+    if (decoded.eventName === "ResultsChallenged") return { type: "ResultsChallenged", ...base };
+    if (decoded.eventName === "ChallengeResolved") return { type: "ChallengeResolved", ...base, accepted: args.accepted === true };
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 function applyIndexedEvent(event: IndexedEvent): boolean {
   if (event.type === "RoomCreated") {
     const localId = event.localRoomId ?? roomIdByContractId.get(event.roomId) ?? `contract:${event.roomId}`;
@@ -592,7 +700,8 @@ function saveState(): void {
     })),
     roomIdByContractId: [...roomIdByContractId.entries()],
     processedEvents: [...processedEvents.values()],
-    relayIdempotency: [...relayIdempotency.entries()]
+    relayIdempotency: [...relayIdempotency.entries()],
+    pollerCursorBlock: pollerCursorBlock?.toString()
   };
   mkdirSync(dirname(statePath), { recursive: true });
   writeFileSync(statePath, JSON.stringify(state, null, 2));
@@ -600,15 +709,7 @@ function saveState(): void {
 
 function loadState(): void {
   if (!existsSync(statePath)) return;
-  const parsed = JSON.parse(readFileSync(statePath, "utf8")) as {
-    rooms?: Array<Omit<RoomRecord, "commitments" | "reveals"> & {
-      commitments?: Array<[string, CommitmentRecord]>;
-      reveals?: Array<[string, RevealRecord]>;
-    }>;
-    roomIdByContractId?: Array<[string, string]>;
-    processedEvents?: string[];
-    relayIdempotency?: Array<[string, string]>;
-  };
+  const parsed = JSON.parse(readFileSync(statePath, "utf8")) as PersistedState;
   for (const room of parsed.rooms ?? []) {
     rooms.set(room.id, {
       ...room,
@@ -619,6 +720,9 @@ function loadState(): void {
   for (const [contractRoomId, localRoomId] of parsed.roomIdByContractId ?? []) roomIdByContractId.set(contractRoomId, localRoomId);
   for (const eventId of parsed.processedEvents ?? []) processedEvents.add(eventId);
   for (const [key, value] of parsed.relayIdempotency ?? []) relayIdempotency.set(key, value);
+  if (parsed.pollerCursorBlock && /^\d+$/.test(parsed.pollerCursorBlock)) {
+    pollerCursorBlock = BigInt(parsed.pollerCursorBlock);
+  }
 }
 
 function readIdempotencyKey(value: unknown): string | null {
@@ -628,6 +732,95 @@ function readIdempotencyKey(value: unknown): string | null {
 function removeValue(values: Address[], value: Address): void {
   const index = values.indexOf(value);
   if (index >= 0) values.splice(index, 1);
+}
+
+function createChainLogPollerFromEnv(): ChainPollerConfig | null {
+  const rpcUrl = process.env.FX_BENTO_RPC_URL;
+  if (!rpcUrl || !validRpcUrl(rpcUrl)) return null;
+  const factoryAddress = normalizeAddress(process.env.FX_BENTO_FACTORY_ADDRESS);
+  const escrowAddress = normalizeAddress(process.env.FX_BENTO_ESCROW_ADDRESS);
+  const settlementAddress = normalizeAddress(process.env.FX_BENTO_SETTLEMENT_ADDRESS);
+  if (!factoryAddress && !escrowAddress && !settlementAddress) return null;
+  const chainId = readNumber(process.env.FX_BENTO_CHAIN_ID, 31337);
+  const fromBlock = readBigInt(process.env.FX_BENTO_FROM_BLOCK) ?? 0n;
+  return {
+    rpcUrl,
+    chainId,
+    pollIntervalMs: Math.max(readNumber(process.env.FX_BENTO_POLL_INTERVAL_MS, 12_000), 1_000),
+    fromBlock,
+    factoryAddress: factoryAddress ?? undefined,
+    escrowAddress: escrowAddress ?? undefined,
+    settlementAddress: settlementAddress ?? undefined
+  };
+}
+
+function startChainLogPollerFromEnv(): void {
+  const config = createChainLogPollerFromEnv();
+  if (!config) return;
+  void pollChainLogs(config);
+  setInterval(() => {
+    void pollChainLogs(config);
+  }, config.pollIntervalMs);
+}
+
+async function pollChainLogs(config: ChainPollerConfig) {
+  if (pollerBusy) return { skipped: true, reason: "poller busy" };
+  pollerBusy = true;
+  try {
+    const client = createPublicClient({
+      chain: {
+        id: config.chainId,
+        name: `fx-bento-${config.chainId}`,
+        nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+        rpcUrls: { default: { http: [config.rpcUrl] } }
+      },
+      transport: http(config.rpcUrl)
+    });
+    const latestBlock = await client.getBlockNumber();
+    const fromBlock = (pollerCursorBlock ?? config.fromBlock) + (pollerCursorBlock === null ? 0n : 1n);
+    if (fromBlock > latestBlock) return { fromBlock: fromBlock.toString(), toBlock: latestBlock.toString(), applied: [], skipped: [] };
+    const addresses = [config.factoryAddress, config.escrowAddress, config.settlementAddress].filter(
+      (address): address is Address => address !== undefined
+    );
+    const logs = await client.getLogs({ address: addresses, fromBlock, toBlock: latestBlock });
+    const applied: string[] = [];
+    const skipped: string[] = [];
+
+    for (const log of logs) {
+      const event = normalizeLogEvent(log);
+      if (!event) {
+        skipped.push(`${log.transactionHash ?? "unknown"}:${log.logIndex ?? "unknown"}`);
+        continue;
+      }
+      const eventId = indexedEventId(event);
+      if (processedEvents.has(eventId)) {
+        skipped.push(eventId);
+        continue;
+      }
+      if (!applyIndexedEvent(event)) {
+        skipped.push(eventId);
+        continue;
+      }
+      processedEvents.add(eventId);
+      applied.push(eventId);
+    }
+
+    pollerCursorBlock = latestBlock;
+    saveState();
+    return { fromBlock: fromBlock.toString(), toBlock: latestBlock.toString(), applied, skipped };
+  } finally {
+    pollerBusy = false;
+  }
+}
+
+function validRpcUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (url.protocol === "https:") return true;
+    return url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1");
+  } catch {
+    return false;
+  }
 }
 
 function nowSeconds(): number {

@@ -35,12 +35,14 @@ Complete in the MVP scaffold:
 
 - Backend room state is explicitly mock/indexer-facing, not money-authoritative.
 - Backend can ingest contract-style room lifecycle events and persist replay/idempotency state locally.
+- Backend can poll configured contract logs with viem and feed the same event-derived state path.
 - Liveblocks auth requires active room membership unless spectator mode is requested.
 - Commit/reveal endpoints are relay-only, idempotent, room-status gated, and commitment signatures can be verified against the Solidity digest.
 
 Remaining P1 production work:
 
-- Add a chain log poller so backend room state is event-derived from contract logs without manual event ingestion.
+- Move poller state from local JSON to production persistence.
+- Add deployment-specific event address configuration.
 - Verify on-chain room membership/status before granting room access in production mode.
 - Persist commitment, reveal, settlement, and leaderboard inputs.
 - Add typed EIP-712 result attestation schema.

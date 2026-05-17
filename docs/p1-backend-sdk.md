@@ -49,8 +49,34 @@ Event ids are derived from `txHash:logIndex` when present. Otherwise the backend
 
 Commit and reveal routes accept an optional `idempotencyKey`. A repeated request with the same key and same commitment/reveal hash is accepted as idempotent. A repeated key with different payload is rejected.
 
+## Chain Log Poller
+
+The backend can feed `/arcade/events` automatically with viem log polling.
+
+Environment:
+
+```bash
+FX_BENTO_RPC_URL=https://...
+FX_BENTO_CHAIN_ID=84532
+FX_BENTO_FROM_BLOCK=0
+FX_BENTO_POLL_INTERVAL_MS=12000
+FX_BENTO_FACTORY_ADDRESS=0x...
+FX_BENTO_ESCROW_ADDRESS=0x...
+FX_BENTO_SETTLEMENT_ADDRESS=0x...
+FX_BENTO_STATE_PATH=.fx-bento/backend-state.json
+```
+
+At least one contract address is required. `FX_BENTO_RPC_URL` must be `https://` for remote RPCs. Local development may use `http://localhost`, `http://127.0.0.1`, or `http://[::1]`.
+
+When configured, the poller starts on boot and advances a persisted `pollerCursorBlock`. Operators can also trigger one poll manually:
+
+```bash
+curl -X POST http://localhost:8787/arcade/indexer/poll
+```
+
 ## Next P1 Work
 
-- Add a real chain log poller for the supported event set.
+- Add production persistence around the poller state instead of local JSON.
+- Add deployment-specific event address configuration.
 - Add frontend components that consume `roomFlowActions(...)` directly.
 - Add integration tests for backend routes once the persistence layer is chosen.
