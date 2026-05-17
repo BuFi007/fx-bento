@@ -1,4 +1,8 @@
-import { parseChainContractAddresses } from "@bufinance/fx-bento-contracts";
+import {
+  chainContractAddressesFromEnv,
+  hasAnyContractAddress,
+  resolveDeploymentRpcUrl,
+} from "@bufinance/fx-bento-contracts";
 import {
   createFxBentoMemoryPersistenceStore,
   createFxBentoPostgresPersistenceStore,
@@ -500,10 +504,11 @@ function resolveContractEngine(job: FxBentoJob, options: FxBentoJobRunOptions): 
     return options.contractEngine;
   }
   const env = readEnv();
-  if (!env.CONTRACT_ADDRESSES_JSON) throw new Error("contract_addresses_not_configured");
+  const addresses = chainContractAddressesFromEnv(env, job.chainId);
+  if (!hasAnyContractAddress(addresses)) throw new Error("contract_addresses_not_configured");
   return {
     chainId: job.chainId,
-    addresses: parseChainContractAddresses(env.CONTRACT_ADDRESSES_JSON),
+    addresses,
   };
 }
 
@@ -898,14 +903,15 @@ function retryDelayMs(attempts: number, policy: FxBentoRetryPolicy): number {
 
 function createDefaultFxBentoJobRunOptions(job: FxBentoJob): FxBentoJobRunOptions {
   const env = readEnv();
-  const rpcUrl = env.CONTRACT_RPC_URL ?? env.PONDER_RPC_URL ?? env.MARKET_DATA_RPC_URL;
+  const rpcUrl = resolveDeploymentRpcUrl(env, job.chainId) ?? env.MARKET_DATA_RPC_URL;
   const ponderReadSource = env.PONDER_GRAPHQL_URL
     ? createPonderReadSource({ graphqlUrl: env.PONDER_GRAPHQL_URL })
     : undefined;
-  const contractEngine = env.CONTRACT_ADDRESSES_JSON
+  const addresses = chainContractAddressesFromEnv(env, job.chainId);
+  const contractEngine = hasAnyContractAddress(addresses)
     ? {
         chainId: job.chainId,
-        addresses: parseChainContractAddresses(env.CONTRACT_ADDRESSES_JSON),
+        addresses,
       }
     : undefined;
   if (!rpcUrl) {

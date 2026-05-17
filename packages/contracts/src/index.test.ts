@@ -11,7 +11,11 @@ import {
   FX_BENTO_EVENT_NAMES_BY_CONTRACT,
   FX_BENTO_ROOM_ESCROW_EVENTS,
   FX_BENTO_SETTLEMENT_EVENTS,
+  chainContractAddressesFromEnv,
+  getContractAddress,
   getDeploymentContractAddress,
+  resolveDeploymentRpcUrl,
+  resolveDeploymentStartBlock,
   type ContractName,
 } from ".";
 
@@ -60,9 +64,12 @@ describe("FX Bento contract metadata", () => {
       const factoryAddress = artifact.addresses.FXBentoRoomFactory;
       const escrowAddress = artifact.addresses.FXBentoRoomEscrow;
       const settlementAddress = artifact.addresses.FXBentoSettlementManager;
+      const roundManagerAddress = artifact.addresses.FXBentoRoundManager;
+      const hookAddress = artifact.addresses.FXBentoHook;
+      const poolRegistryAddress = artifact.addresses.PoolRegistry;
       const poolManagerAddress = artifact.addresses.PoolManager;
 
-      if (!factoryAddress || !escrowAddress || !settlementAddress || !poolManagerAddress) {
+      if (!factoryAddress || !escrowAddress || !settlementAddress || !roundManagerAddress || !hookAddress || !poolRegistryAddress || !poolManagerAddress) {
         throw new Error(`missing deployment address for chain ${artifact.chainId}`);
       }
       expect(DeploymentArtifactSchema.parse(artifact)).toEqual(artifact);
@@ -72,8 +79,44 @@ describe("FX Bento contract metadata", () => {
       expect(artifact.backendEnv.FX_BENTO_FACTORY_ADDRESS).toBe(factoryAddress);
       expect(artifact.backendEnv.FX_BENTO_ESCROW_ADDRESS).toBe(escrowAddress);
       expect(artifact.backendEnv.FX_BENTO_SETTLEMENT_ADDRESS).toBe(settlementAddress);
+      expect(artifact.backendEnv.FX_BENTO_ROUND_MANAGER_ADDRESS).toBe(roundManagerAddress);
+      expect(artifact.backendEnv.FX_BENTO_HOOK_ADDRESS).toBe(hookAddress);
+      expect(artifact.backendEnv.FX_BENTO_POOL_REGISTRY_ADDRESS).toBe(poolRegistryAddress);
       expect(getDeploymentContractAddress(artifact.chainId, "PoolManager")).toBe(poolManagerAddress);
     }
+  });
+
+  test("maps FX_BENTO direct env aliases into chain-scoped contract config", () => {
+    const addresses = chainContractAddressesFromEnv(ARC_TESTNET_DEPLOYMENT.backendEnv, ARC_TESTNET_DEPLOYMENT.chainId);
+    const factory = ARC_TESTNET_DEPLOYMENT.addresses.FXBentoRoomFactory;
+    const escrow = ARC_TESTNET_DEPLOYMENT.addresses.FXBentoRoomEscrow;
+    const settlement = ARC_TESTNET_DEPLOYMENT.addresses.FXBentoSettlementManager;
+    const roundManager = ARC_TESTNET_DEPLOYMENT.addresses.FXBentoRoundManager;
+    const hook = ARC_TESTNET_DEPLOYMENT.addresses.FXBentoHook;
+    const registry = ARC_TESTNET_DEPLOYMENT.addresses.PoolRegistry;
+
+    if (!factory || !escrow || !settlement || !roundManager || !hook || !registry) {
+      throw new Error("missing Arc deployment test fixture address");
+    }
+
+    expect(getContractAddress(addresses, "FXBentoRoomFactory", ARC_TESTNET_DEPLOYMENT.chainId)).toBe(
+      factory
+    );
+    expect(getContractAddress(addresses, "FXBentoRoomEscrow", ARC_TESTNET_DEPLOYMENT.chainId)).toBe(
+      escrow
+    );
+    expect(getContractAddress(addresses, "FXBentoSettlementManager", ARC_TESTNET_DEPLOYMENT.chainId)).toBe(
+      settlement
+    );
+    expect(getContractAddress(addresses, "FXBentoRoundManager", ARC_TESTNET_DEPLOYMENT.chainId)).toBe(
+      roundManager
+    );
+    expect(getContractAddress(addresses, "FXBentoHook", ARC_TESTNET_DEPLOYMENT.chainId)).toBe(
+      hook
+    );
+    expect(getContractAddress(addresses, "PoolRegistry", ARC_TESTNET_DEPLOYMENT.chainId)).toBe(
+      registry
+    );
   });
 
   test("deployment JSON artifacts match typed exports", () => {
@@ -87,6 +130,46 @@ describe("FX Bento contract metadata", () => {
       const jsonArtifact = JSON.parse(readFileSync(artifactPath, "utf8"));
       expect(DeploymentArtifactSchema.parse(jsonArtifact)).toEqual(typedArtifact);
     }
+  });
+
+  test("deployment artifacts feed indexer defaults and allow env overrides", () => {
+    const fujiFactory = AVALANCHE_FUJI_DEPLOYMENT.addresses.FXBentoRoomFactory;
+    const fujiEscrow = AVALANCHE_FUJI_DEPLOYMENT.addresses.FXBentoRoomEscrow;
+    const fujiSettlement = AVALANCHE_FUJI_DEPLOYMENT.addresses.FXBentoSettlementManager;
+    const arcEscrow = ARC_TESTNET_DEPLOYMENT.addresses.FXBentoRoomEscrow;
+
+    if (!fujiFactory || !fujiEscrow || !fujiSettlement || !arcEscrow) {
+      throw new Error("missing deployment test fixture address");
+    }
+
+    const fujiAddresses = chainContractAddressesFromEnv({ FX_BENTO_CHAIN_ID: 43113 }, 43113);
+    expect(getContractAddress(fujiAddresses, "FXBentoRoomFactory", 43113)).toBe(
+      fujiFactory
+    );
+    expect(getContractAddress(fujiAddresses, "FXBentoRoomEscrow", 43113)).toBe(
+      fujiEscrow
+    );
+    expect(getContractAddress(fujiAddresses, "FXBentoSettlementManager", 43113)).toBe(
+      fujiSettlement
+    );
+    expect(resolveDeploymentRpcUrl({ FX_BENTO_CHAIN_ID: 43113 }, 43113)).toBe(AVALANCHE_FUJI_DEPLOYMENT.rpcUrl);
+    expect(resolveDeploymentStartBlock({ FX_BENTO_CHAIN_ID: 43113 }, 43113)).toBe(
+      AVALANCHE_FUJI_DEPLOYMENT.indexerStartBlock
+    );
+
+    const overrideFactory = "0x1111111111111111111111111111111111111111" as const;
+    const arcAddresses = chainContractAddressesFromEnv(
+      { FX_BENTO_CHAIN_ID: 5042002, FX_BENTO_FACTORY_ADDRESS: overrideFactory },
+      5042002
+    );
+    expect(getContractAddress(arcAddresses, "FXBentoRoomFactory", 5042002)).toBe(overrideFactory);
+    expect(getContractAddress(arcAddresses, "FXBentoRoomEscrow", 5042002)).toBe(
+      arcEscrow
+    );
+    expect(resolveDeploymentRpcUrl({ FX_BENTO_RPC_URL: "https://rpc.example.test" }, 5042002)).toBe(
+      "https://rpc.example.test"
+    );
+    expect(resolveDeploymentStartBlock({ FX_BENTO_FROM_BLOCK: 123 }, 5042002)).toBe(123);
   });
 });
 

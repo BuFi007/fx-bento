@@ -31,7 +31,7 @@ import {
   type FxBentoContractEngineConfig,
   type FxBentoTransactionRequest,
 } from "@bufinance/fx-bento-game";
-import { parseChainContractAddresses } from "@bufinance/fx-bento-contracts";
+import { chainContractAddressesFromEnv, resolveDeploymentRpcUrl } from "@bufinance/fx-bento-contracts";
 import { readEnv } from "@bufinance/fx-bento-env";
 import { ensureLiveblocksRoom } from "@bufinance/fx-bento-liveblocks";
 import {
@@ -305,10 +305,10 @@ fxBentoRoutes.get("/fx-bento/markets/:poolId/snapshots", async (c) => {
 
 function engineFromEnv(chainId?: number) {
   const env = readEnv();
-  const resolvedChainId = chainId ?? Number(env.X402_NETWORK.split(":")[1] ?? 84532);
+  const resolvedChainId = chainId ?? env.FX_BENTO_CHAIN_ID ?? Number(env.X402_NETWORK.split(":")[1] ?? 84532);
   return {
     chainId: resolvedChainId,
-    addresses: parseChainContractAddresses(env.CONTRACT_ADDRESSES_JSON),
+    addresses: chainContractAddressesFromEnv(env, resolvedChainId),
   };
 }
 
@@ -318,7 +318,7 @@ async function transactionPayload(
   options: { roomId?: string } = {}
 ) {
   const env = readEnv();
-  const rpcUrl = env.CONTRACT_RPC_URL ?? env.MARKET_DATA_RPC_URL ?? env.PONDER_RPC_URL;
+  const rpcUrl = resolveDeploymentRpcUrl(env, engine.chainId) ?? env.MARKET_DATA_RPC_URL;
   const client = rpcUrl ? createFxBentoPublicClient({ chainId: engine.chainId, rpcUrl }) : undefined;
   const indexedRoom = options.roomId
     ? await ponderSourceFromEnv().inspectFxBentoRoom({ chainId: engine.chainId, roomId: options.roomId })
@@ -336,9 +336,6 @@ async function transactionPayload(
 
 function ponderSourceFromEnv() {
   const env = readEnv();
-  if (!env.PONDER_GRAPHQL_URL && env.ENVIRONMENT === "production") {
-    throw new Error("ponder_read_source_not_configured");
-  }
   return createPonderReadSource({ graphqlUrl: env.PONDER_GRAPHQL_URL });
 }
 

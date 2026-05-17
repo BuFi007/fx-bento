@@ -37,7 +37,7 @@ export type ChainContractAddresses = z.infer<typeof ChainContractAddressesSchema
 
 export const FX_BENTO_CONTRACTS: ContractName[] = ContractNameSchema.options;
 
-type EnvSource = Record<string, string | undefined>;
+type EnvSource = Record<string, string | number | undefined>;
 
 const CONTRACT_ENV_ALIASES = {
   FXBentoCommitmentManager: ["FX_BENTO_COMMITMENT_MANAGER_ADDRESS"],
@@ -226,6 +226,35 @@ export function getDeploymentContractAddress(
   name: DeploymentContractName
 ): Address | null {
   return getDeploymentArtifact(chainId)?.addresses[name] ?? null;
+}
+
+export function getDeploymentContractAddresses(chainId: number): ContractAddresses {
+  const deployment = getDeploymentArtifact(chainId);
+  if (!deployment) return {};
+  const addresses: Partial<Record<ContractName, Address>> = {};
+  for (const name of FX_BENTO_CONTRACTS) {
+    const address = deployment.addresses[name];
+    if (address) addresses[name] = address;
+  }
+  return ContractAddressesSchema.parse(addresses);
+}
+
+export function resolveDeploymentRpcUrl(source: EnvSource, chainId: number): string | undefined {
+  return (
+    stringValue(source.PONDER_RPC_URL) ??
+    stringValue(source.FX_BENTO_RPC_URL) ??
+    stringValue(source.CONTRACT_RPC_URL) ??
+    getDeploymentArtifact(chainId)?.rpcUrl
+  );
+}
+
+export function resolveDeploymentStartBlock(source: EnvSource, chainId: number): number {
+  return (
+    numberValue(source.PONDER_FX_BENTO_START_BLOCK) ??
+    numberValue(source.FX_BENTO_FROM_BLOCK) ??
+    getDeploymentArtifact(chainId)?.indexerStartBlock ??
+    0
+  );
 }
 
 export const FX_BENTO_ROOM_FACTORY_EVENTS = [
@@ -487,15 +516,17 @@ export function chainContractAddressesFromEnv(
   source: EnvSource,
   fallbackChainId?: number
 ): ChainContractAddresses {
-  const parsed = parseChainContractAddresses(source.CONTRACT_ADDRESSES_JSON);
+  const parsed = parseChainContractAddresses(stringValue(source.CONTRACT_ADDRESSES_JSON));
   const direct = contractAddressesFromEnv(source);
-  if (!hasAnyContractAddress(direct)) return parsed;
-
   const chainId = String(source.FX_BENTO_CHAIN_ID ?? source.PONDER_CHAIN_ID ?? fallbackChainId ?? "0");
+  const deployment = getDeploymentContractAddresses(Number(chainId));
+  if (!hasAnyContractAddress(direct) && !hasAnyContractAddress(deployment)) return parsed;
+
   return ChainContractAddressesSchema.parse({
     ...parsed,
     [chainId]: {
       ...(parsed[chainId] ?? {}),
+      ...deployment,
       ...direct,
     },
   });
@@ -543,9 +574,22 @@ export function getFxBentoContractConfig(args: {
 
 function envAddress(source: EnvSource, keys: readonly string[]): Address | undefined {
   for (const key of keys) {
-    const value = source[key];
+    const rawValue = source[key];
+    const value = typeof rawValue === "number" ? String(rawValue) : rawValue;
     if (!value) continue;
     return AddressSchema.parse(value);
   }
+  return undefined;
+}
+
+function stringValue(value: string | number | undefined): string | undefined {
+  if (typeof value === "string" && value.trim()) return value;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return undefined;
+}
+
+function numberValue(value: string | number | undefined): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return Number(value);
   return undefined;
 }
