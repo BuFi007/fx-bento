@@ -266,8 +266,8 @@ contract FXBentoAccountingInvariantTest is StdInvariant, Test {
         settlement = new FXBentoSettlementManager(owner, factory, escrow);
         escrow.setSettlementManager(address(settlement));
         settlement.setRoundManager(rounds);
-        settlement.setChallengeWindow(0);
-        settlement.setSettlementRescueDelay(10);
+        settlement.setChallengeWindow(5 minutes);
+        settlement.setSettlementRescueDelay(1 hours);
 
         address[3] memory players = [alice, bob, carol];
         handler = new FXBentoAccountingHandler(usdc, factory, escrow, rounds, settlement, hook, key, players);

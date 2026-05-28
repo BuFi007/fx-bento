@@ -61,7 +61,7 @@ contract FXBentoRoomFactory is Pausable {
         require(config.roundDuration > 0, "NO_ROUND_DURATION");
         require(config.lockBuffer < config.roundDuration, "BAD_LOCK_BUFFER");
         require(config.startTime > block.timestamp, "START_NOT_FUTURE");
-        require(config.entryFee > 0, "NO_ENTRY_FEE");
+        require(config.entryFee >= 1_000_000, "ENTRY_FEE_TOO_LOW");
         require(_sum(config.payoutBps) == BPS, "BAD_PAYOUT_SPLIT");
         PoolId poolId = PoolIdLibrary.toId(config.poolKey);
         require(poolRegistry.isAllowed(poolId), "POOL_NOT_ALLOWED");

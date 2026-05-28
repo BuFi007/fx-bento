@@ -96,7 +96,7 @@ contract FXBentoProtocolTest is Test {
         settlement = new FXBentoSettlementManager(owner, factory, escrow);
         escrow.setSettlementManager(address(settlement));
         settlement.setRoundManager(rounds);
-        settlement.setChallengeWindow(0);
+        settlement.setChallengeWindow(5 minutes);
         commitments = new FXBentoCommitmentManager(owner, rounds, escrow);
         scoring = new ScoringHarness();
 
@@ -298,6 +298,7 @@ contract FXBentoProtocolTest is Test {
         uint256 prize = 9e6;
         PayoutRoot memory payout = _payoutRoot(roomId, alice, prize);
         settlement.submitResults(roomId, payout, "ipfs://results", "");
+        vm.warp(block.timestamp + 6 minutes);
         settlement.finalizeResults(roomId);
         assertEq(escrow.protocolFee(roomId), 1e6);
         assertEq(escrow.payoutTotal(roomId), prize);
@@ -323,8 +324,10 @@ contract FXBentoProtocolTest is Test {
         uint256 prize = 9e6;
         PayoutRoot memory payout = _payoutRoot(roomId, alice, prize);
         settlement.submitResults(roomId, payout, "ipfs://results", "");
+        vm.warp(block.timestamp + 6 minutes);
         settlement.finalizeResults(roomId);
         vm.expectRevert("FINALIZED");
+        vm.warp(block.timestamp + 6 minutes);
         settlement.finalizeResults(roomId);
 
         vm.prank(alice);
@@ -432,13 +435,12 @@ contract FXBentoProtocolTest is Test {
     }
 
     function testCancelledRoomDisablesActiveMembership() public {
-        settlement.setSettlementRescueDelay(10);
         uint256 roomId = _startedRoom();
 
         assertTrue(escrow.canPlay(roomId, alice));
         assertTrue(escrow.isActivePlayer(roomId, alice));
 
-        vm.warp(factory.getRoom(roomId).startTime + uint256(factory.getRoom(roomId).rounds) * 60 + 10);
+        vm.warp(settlement.settlementRescueDeadline(roomId) + 1);
         settlement.rescueFailedSettlement(roomId);
 
         assertFalse(escrow.canPlay(roomId, alice));
@@ -467,6 +469,7 @@ contract FXBentoProtocolTest is Test {
         PayoutRoot memory payout = _payoutRoot(roomId, carol, prize);
         _settleRemainingRounds(roomId, 1);
         settlement.submitResults(roomId, payout, "ipfs://results", "");
+        vm.warp(block.timestamp + 6 minutes);
         settlement.finalizeResults(roomId);
         vm.prank(carol);
         vm.expectRevert("NOT_PLAYER");
@@ -605,6 +608,7 @@ contract FXBentoProtocolTest is Test {
         settlement.challengeResults(roomId, "bad-score");
 
         vm.expectRevert("CHALLENGED");
+        vm.warp(block.timestamp + 6 minutes);
         settlement.finalizeResults(roomId);
     }
 
@@ -615,6 +619,7 @@ contract FXBentoProtocolTest is Test {
         settlement.submitResults(roomId, payout, "ipfs://results", "");
         settlement.challengeResults(roomId, "bad-score");
         settlement.resolveChallenge(roomId, false, _payoutRoot(roomId, bob, 9e6), "ipfs://replacement");
+        vm.warp(block.timestamp + 6 minutes);
         settlement.finalizeResults(roomId);
 
         assertEq(escrow.resultsRoot(roomId), payout.winnerRoot);
@@ -627,6 +632,7 @@ contract FXBentoProtocolTest is Test {
         settlement.challengeResults(roomId, "bad-score");
         PayoutRoot memory replacement = _payoutRootWithMetadata(roomId, bob, 9e6, "ipfs://replacement");
         settlement.resolveChallenge(roomId, true, replacement, "ipfs://replacement");
+        vm.warp(block.timestamp + 6 minutes);
         settlement.finalizeResults(roomId);
 
         assertEq(escrow.resultsRoot(roomId), replacement.winnerRoot);
@@ -635,10 +641,9 @@ contract FXBentoProtocolTest is Test {
     }
 
     function testRescueFailedSettlementWithoutResultsUnlocksRefunds() public {
-        settlement.setSettlementRescueDelay(10);
         uint256 roomId = _startedRoom();
 
-        vm.warp(factory.getRoom(roomId).startTime + uint256(factory.getRoom(roomId).rounds) * 60 + 10);
+        vm.warp(settlement.settlementRescueDeadline(roomId) + 1);
         settlement.rescueFailedSettlement(roomId);
 
         assertEq(uint8(factory.getRoom(roomId).status), 4);
@@ -656,7 +661,7 @@ contract FXBentoProtocolTest is Test {
     }
 
     function testRescuePendingSettlementBeforeDeadlineRejected() public {
-        settlement.setSettlementRescueDelay(10);
+        settlement.setSettlementRescueDelay(1 hours);
         uint256 roomId = _startedRoom();
         _settleAllRounds(roomId);
         settlement.submitResults(roomId, _payoutRoot(roomId, alice, 9e6), "ipfs://results", "");
@@ -666,13 +671,12 @@ contract FXBentoProtocolTest is Test {
     }
 
     function testRescueExpiredChallengedSettlementUnlocksRefunds() public {
-        settlement.setSettlementRescueDelay(10);
         uint256 roomId = _startedRoom();
         _settleAllRounds(roomId);
         settlement.submitResults(roomId, _payoutRoot(roomId, alice, 9e6), "ipfs://results", "");
         settlement.challengeResults(roomId, "bad-score");
 
-        vm.warp(block.timestamp + 10);
+        vm.warp(settlement.settlementRescueDeadline(roomId) + 1);
         settlement.rescueFailedSettlement(roomId);
 
         assertEq(uint8(factory.getRoom(roomId).status), 4);
@@ -682,7 +686,7 @@ contract FXBentoProtocolTest is Test {
     }
 
     function testRescuedRoomCannotFinalizeOrClaimPrize() public {
-        settlement.setSettlementRescueDelay(10);
+        settlement.setSettlementRescueDelay(1 hours);
         uint256 roomId = _startedRoom();
         _settleAllRounds(roomId);
         settlement.submitResults(roomId, _payoutRoot(roomId, alice, 9e6), "ipfs://results", "");
@@ -691,6 +695,7 @@ contract FXBentoProtocolTest is Test {
         settlement.rescueFailedSettlement(roomId);
 
         vm.expectRevert("ROOM_NOT_SETTLING");
+        vm.warp(block.timestamp + 6 minutes);
         settlement.finalizeResults(roomId);
 
         vm.prank(alice);
@@ -707,6 +712,7 @@ contract FXBentoProtocolTest is Test {
         vm.expectRevert("ROOM_NOT_SETTLED");
         escrow.claimPrize(roomId, 9e6, new bytes32[](0));
 
+        vm.warp(block.timestamp + 6 minutes);
         settlement.finalizeResults(roomId);
 
         vm.prank(bob);
@@ -724,6 +730,7 @@ contract FXBentoProtocolTest is Test {
         PayoutRoot memory payout = _payoutRoot(roomId, alice, 9e6);
         payout.payoutTotal = 8e6;
         settlement.submitResults(roomId, payout, "ipfs://results", "");
+        vm.warp(block.timestamp + 6 minutes);
         settlement.finalizeResults(roomId);
 
         vm.prank(alice);

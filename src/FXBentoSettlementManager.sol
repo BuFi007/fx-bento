@@ -47,17 +47,20 @@ contract FXBentoSettlementManager is AccessManaged {
     }
 
     function setChallengeWindow(uint64 challengeWindow_) external onlyOwner {
+        require(challengeWindow_ >= 5 minutes, "WINDOW_TOO_SHORT");
         require(challengeWindow_ <= 2 days, "WINDOW_TOO_LONG");
         challengeWindow = challengeWindow_;
     }
 
     function setSettlementRescueDelay(uint64 settlementRescueDelay_) external onlyOwner {
+        require(settlementRescueDelay_ >= 1 hours, "RESCUE_DELAY_TOO_SHORT");
         require(settlementRescueDelay_ <= 30 days, "RESCUE_DELAY_TOO_LONG");
         settlementRescueDelay = settlementRescueDelay_;
         emit SettlementRescueDelayUpdated(settlementRescueDelay_);
     }
 
     function setRoundManager(FXBentoRoundManager roundManager_) external onlyOwner {
+        require(address(roundManager) == address(0), "ROUND_MANAGER_ALREADY_SET");
         roundManager = roundManager_;
     }
 
