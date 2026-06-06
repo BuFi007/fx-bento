@@ -68,7 +68,9 @@ const settlementPriceRoot = `0x${"77".repeat(32)}` as const;
 
 let anvil: ReturnType<typeof Bun.spawn> | null = null;
 
-describe("FX Bento Anvil lifecycle", () => {
+// Requires forge + anvil binaries; run locally with `bun run test:anvil`
+const describeAnvil = process.env.CI ? describe.skip : describe;
+describeAnvil("FX Bento Anvil lifecycle", () => {
   beforeAll(async () => {
     resetPonderStateForTests();
     await resetFxBentoJobsForTests();
