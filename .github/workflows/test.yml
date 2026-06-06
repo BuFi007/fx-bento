@@ -11,7 +11,7 @@ env:
   FOUNDRY_PROFILE: ci
 
 jobs:
-  check:
+  forge:
     name: Foundry project
     runs-on: ubuntu-latest
     permissions:
@@ -24,6 +24,17 @@ jobs:
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: nightly
+      - name: Cache Forge build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.foundry/cache
+            out
+            cache
+          key: forge-${{ runner.os }}-${{ hashFiles('foundry.toml', 'src/**/*.sol', 'test/**/*.sol', 'lib/**/*.sol') }}
+          restore-keys: forge-${{ runner.os }}-
 
       - name: Show Forge version
         run: forge --version
@@ -35,4 +46,27 @@ jobs:
         run: forge build
 
       - name: Run Forge tests
-        run: forge test -vvv
+        run: forge test
+  ts:
+    name: TypeScript tests (bun)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lockb', '**/package.json') }}
+          restore-keys: bun-${{ runner.os }}-
+      - name: Install dependencies
+        run: bun install
+      - name: Run TS tests
+        run: bun test apps packages
+      - name: Type check
+        run: bun run typecheck

@@ -7,8 +7,19 @@ remappings = [
     "v4-periphery/=lib/v4-periphery/src/"
 ]
 
-[invariant]
+[profile.default.invariant]
 runs = 32
 depth = 32
 
+[profile.ci]
+src = "src"
+out = "out"
+libs = ["lib"]
+remappings = [
+    "v4-core/=lib/v4-core/src/",
+    "v4-periphery/=lib/v4-periphery/src/"
+]
+[profile.ci.invariant]
+runs = 16
+depth = 16
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
