@@ -18,10 +18,7 @@ import {IPoolManager} from "v4-core/interfaces/IPoolManager.sol";
 import {StateLibrary} from "v4-core/libraries/StateLibrary.sol";
 import {BalanceDelta} from "v4-core/types/BalanceDelta.sol";
 import {Currency} from "v4-core/types/Currency.sol";
-import {
-    PoolId as V4PoolId,
-    PoolIdLibrary as V4PoolIdLibrary
-} from "v4-core/types/PoolId.sol";
+import {PoolId as V4PoolId, PoolIdLibrary as V4PoolIdLibrary} from "v4-core/types/PoolId.sol";
 import {PoolKey as V4PoolKey} from "v4-core/types/PoolKey.sol";
 
 /// @notice Minimal PoolManager.unlock helper for seeding live Bento v4 pools.
@@ -54,13 +51,7 @@ contract BentoV4LiquiditySeeder is IUnlockCallback {
         return abi.decode(
             manager.unlock(
                 abi.encode(
-                    SeedParams({
-                        payer: payer,
-                        recipient: recipient,
-                        key: key,
-                        params: params,
-                        hookData: hookData
-                    })
+                    SeedParams({payer: payer, recipient: recipient, key: key, params: params, hookData: hookData})
                 )
             ),
             (BalanceDelta, BalanceDelta)
@@ -220,12 +211,9 @@ contract SeedBentoV4Pool is Script {
         }
     }
 
-    function _seedLiquidity(
-        SeedConfig memory cfg,
-        V4PoolKey memory v4Key,
-        IPoolManager manager,
-        address broadcaster
-    ) internal {
+    function _seedLiquidity(SeedConfig memory cfg, V4PoolKey memory v4Key, IPoolManager manager, address broadcaster)
+        internal
+    {
         if (cfg.liquidityDelta != 0) {
             require(cfg.liquidityDelta <= uint256(type(uint128).max), "liquidity delta too large");
             require(cfg.token0Cap != 0 && cfg.token1Cap != 0, "missing token caps");

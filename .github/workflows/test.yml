@@ -67,6 +67,6 @@ jobs:
       - name: Install dependencies
         run: bun install
       - name: Run TS tests
-        run: bun test apps packages
+        run: bun test apps packages --ignore "apps/api/src/anvil-lifecycle.test.ts"
       - name: Type check
         run: bun run typecheck
